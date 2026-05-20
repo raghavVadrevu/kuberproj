@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: the-huddle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: huddle
+      POSTGRES_PASSWORD: huddle_dev
+      POSTGRES_DB: huddle
+    ports:
+      - "5433:5432"
+    volumes:
+      - the-huddle-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U huddle -d huddle"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: the-huddle-api
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      # These act as defaults for LOCAL dev
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      APP_ENV: local  # <--- Change to 'production' on your EC2
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  the-huddle-pgdata:

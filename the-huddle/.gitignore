@@ -1,0 +1,13 @@
+# Python / FastAPI junk
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+.env
+
+# Node / React junk
+node_modules/
+dist/
+build/
+.DS_Store
