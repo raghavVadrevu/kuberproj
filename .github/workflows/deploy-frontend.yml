@@ -41,6 +41,9 @@ jobs:
 
       - name: Build Vite App
         run: npm run build
+        env:
+          VITE_COGNITO_ISSUER: ${{ secrets.VITE_COGNITO_ISSUER }}
+          VITE_COGNITO_CLIENT_ID: ${{ secrets.VITE_COGNITO_CLIENT_ID }}
 
       - name: Deploy to S3
         run: aws s3 sync dist/ s3://huddle-frontend-1001 --delete
