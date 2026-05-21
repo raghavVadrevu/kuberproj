@@ -1,0 +1,64 @@
+name: Deploy Backend to ECS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    
+    # Run all shell commands inside the backend directory
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::992382597855:role/GitHubActions-HuddleDeploy-Role
+          aws-region: ap-south-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: huddle-backend
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # The --platform flag ensures we always build for Linux/X86_64, matching your ECS architecture
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Inject new image ID into the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: backend/task-definition.json
+          container-name: huddle-backend-container # <--- e.g., 'huddle-backend' (Find this in your task-definition.json)
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: huddle-backend-service # <--- e.g., 'huddle-backend-service'
+          cluster: huddle-cluster # <--- e.g., 'huddle-cluster'
+          wait-for-service-stability: true
