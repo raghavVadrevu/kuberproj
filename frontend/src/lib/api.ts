@@ -170,3 +170,10 @@ export type VaultItemDto = {
 export const VAULT_CATEGORIES = ['Access Codes', 'Locations', 'Links'] as const
 
 export const ACTIVE_GROUP_STORAGE_KEY = 'huddle:activeGroupId'
+
+export function resolveActiveGroupId(groups: GroupDto[]): string | null {
+  if (groups.length === 0) return null
+  const stored = localStorage.getItem(ACTIVE_GROUP_STORAGE_KEY)
+  if (stored && groups.some((g) => g.id === stored)) return stored
+  return groups[0]!.id
+}

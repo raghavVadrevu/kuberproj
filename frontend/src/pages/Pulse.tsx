@@ -200,7 +200,7 @@ export default function PulsePage() {
             </div>
             <CardTitle className="text-sm font-medium text-muted-foreground">Pulse</CardTitle>
             {groupLabel ? (
-              <Badge variant="outline" className="ml-auto text-[10px]">
+              <Badge variant="outline" className="ml-auto text-[11px]">
                 {groupLabel}
               </Badge>
             ) : null}
@@ -215,7 +215,7 @@ export default function PulsePage() {
               <div className="flex -space-x-2">
                 {members.slice(0, 6).map((m) => (
                   <Avatar key={m.user_sub} className="h-7 w-7 border-2 border-card">
-                    <AvatarFallback className="bg-secondary text-[10px]">
+                    <AvatarFallback className="bg-secondary text-[11px]">
                       {initialsFromName(m.display_name, m.user_sub)}
                     </AvatarFallback>
                   </Avatar>
@@ -338,7 +338,7 @@ export default function PulsePage() {
                           </div>
                         </div>
                       )}
-                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                         {proposal.options.slice(0, 4).map((opt, i) => (
                           <span key={opt.id} className="flex items-center gap-1">
                             <span
@@ -414,7 +414,7 @@ export default function PulsePage() {
                         <div className="flex items-center gap-2">
                           <p className="truncate text-sm font-medium">{tab.description}</p>
                           {!tab.settled ? (
-                            <Badge variant="outline" className="shrink-0 text-[10px]">
+                            <Badge variant="outline" className="shrink-0 text-[11px]">
                               Pending
                             </Badge>
                           ) : null}

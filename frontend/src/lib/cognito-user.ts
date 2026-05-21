@@ -1,10 +1,11 @@
 import type { JWT } from '@aws-amplify/core'
 
-/** Fields we show on Profile from the Cognito ID token (after login). */
+/** Fields we show on Profile from the signed-in account. */
 export type CognitoProfileSummary = {
   sub: string
   email: string | null
   displayName: string
+  pictureUrl: string | null
 }
 
 export function summaryFromIdToken(payload: JWT['payload']): CognitoProfileSummary {
@@ -21,5 +22,8 @@ export function summaryFromIdToken(payload: JWT['payload']): CognitoProfileSumma
     if (combined) displayName = combined
   }
 
-  return { sub, email, displayName }
+  const pictureUrl =
+    typeof payload.picture === 'string' && payload.picture.trim() ? payload.picture.trim() : null
+
+  return { sub, email, displayName, pictureUrl }
 }

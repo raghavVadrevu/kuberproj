@@ -38,6 +38,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { refreshNavBadges } from '@/contexts/NavBadgesContext'
+import { formatRupees, RUPEE_SYMBOL } from '@/lib/currency'
 import {
   ACTIVE_GROUP_STORAGE_KEY,
   apiJson,
@@ -203,6 +205,7 @@ export default function TabPage() {
       setDrawerOpen(false)
       resetDrawer()
       toast.success('Expense added')
+      refreshNavBadges()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not add expense')
     } finally {
@@ -219,6 +222,7 @@ export default function TabPage() {
       )
       setOverview(data)
       toast.success('Marked settled')
+      refreshNavBadges()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not settle')
     }
@@ -326,7 +330,7 @@ export default function TabPage() {
                           !isOwed && !isOwe && 'text-muted-foreground',
                         )}
                       >
-                        ${Math.abs(myNet).toFixed(2)}
+                        {formatRupees(Math.abs(myNet))}
                       </p>
                       <p
                         className={cn(
@@ -355,14 +359,17 @@ export default function TabPage() {
                         )}
                       >
                         <Avatar className="h-5 w-5">
-                          <AvatarFallback className="text-[8px]">
+                          <AvatarFallback className="text-[9px]">
                             {(person.display_name ?? person.user_sub).slice(0, 2).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <span>
                           {person.display_name ?? subMonogram(person.user_sub)}:{' '}
-                          {person.net > 0 ? '+' : ''}
-                          {person.net.toFixed(0)}
+                          {person.net > 0 ? '+' : person.net < 0 ? '−' : ''}
+                          {formatRupees(Math.abs(person.net), {
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0,
+                          })}
                         </span>
                       </div>
                     ))}
@@ -440,9 +447,9 @@ export default function TabPage() {
                             </p>
                           </div>
                           <div className="shrink-0 text-right">
-                            <p className="text-sm font-semibold">${transaction.amount.toFixed(2)}</p>
-                            <p className="text-[10px] text-muted-foreground">
-                              ${transaction.share_amount.toFixed(2)}/person
+                            <p className="text-sm font-semibold">{formatRupees(transaction.amount)}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {formatRupees(transaction.share_amount)}/person
                             </p>
                           </div>
                           {!transaction.settled ? (
@@ -506,7 +513,9 @@ export default function TabPage() {
               <div className="space-y-2">
                 <Label htmlFor="tab-amt">Amount</Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    {RUPEE_SYMBOL}
+                  </span>
                   <Input
                     id="tab-amt"
                     type="number"

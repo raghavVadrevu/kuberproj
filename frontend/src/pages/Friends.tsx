@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { refreshNavBadges } from '@/contexts/NavBadgesContext'
 import {
   apiJson,
   type FriendRequestDto,
@@ -34,6 +35,7 @@ export default function FriendsPage() {
       setFriends(f)
       setIncoming(inc)
       setOutgoing(out)
+      refreshNavBadges()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not load friends')
     } finally {

@@ -45,6 +45,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { refreshNavBadges } from '@/contexts/NavBadgesContext'
+import { markVaultSeen } from '@/lib/vault-last-seen'
 import {
   ACTIVE_GROUP_STORAGE_KEY,
   VAULT_CATEGORIES,
@@ -141,6 +143,11 @@ export default function VaultPage() {
     void loadVault()
   }, [loadVault])
 
+  useEffect(() => {
+    markVaultSeen()
+    refreshNavBadges()
+  }, [])
+
   const openCreate = () => {
     setDialogMode('create')
     setEditingId(null)
@@ -208,6 +215,8 @@ export default function VaultPage() {
       }
       setDialogOpen(false)
       await loadVault()
+      markVaultSeen()
+      refreshNavBadges()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save')
     } finally {
@@ -222,6 +231,8 @@ export default function VaultPage() {
       await apiJson<void>(`/groups/${groupId}/vault/${id}`, { method: 'DELETE' })
       toast.success('Deleted')
       await loadVault()
+      markVaultSeen()
+      refreshNavBadges()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not delete')
     }
@@ -399,7 +410,7 @@ export default function VaultPage() {
                               ) : null}
                             </div>
                             <div className="flex shrink-0 items-center gap-1">
-                              <Badge variant="secondary" className="text-[10px]">
+                              <Badge variant="secondary" className="text-[11px]">
                                 {item.category.split(' ')[0]}
                               </Badge>
                               <DropdownMenu>

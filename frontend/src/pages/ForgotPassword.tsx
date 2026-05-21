@@ -12,6 +12,9 @@ import { formatCognitoError } from '@/lib/cognito-errors'
 
 type Step = 'request' | 'confirm'
 
+const VERIFICATION_SPAM_HINT =
+  "If you don't see the email, check your spam or junk folder."
+
 export default function ForgotPasswordPage() {
   const [step, setStep] = useState<Step>('request')
   const [email, setEmail] = useState('')
@@ -20,7 +23,6 @@ export default function ForgotPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [deliveryHint, setDeliveryHint] = useState<string | null>(null)
   const [finished, setFinished] = useState(false)
 
   const handleRequestCode = async () => {
@@ -33,13 +35,7 @@ export default function ForgotPasswordPage() {
 
     setBusy(true)
     try {
-      const out = await resetPassword({ username: emailNorm })
-      const d = out.nextStep.codeDeliveryDetails
-      if (d?.destination || d?.deliveryMedium) {
-        setDeliveryHint(`Cognito will email a code to ${d.destination ?? 'your address'}. Check spam.`)
-      } else {
-        setDeliveryHint('If your account exists, Cognito emailed a reset code. Check spam.')
-      }
+      await resetPassword({ username: emailNorm })
       setStep('confirm')
       setCode('')
     } catch (e) {
@@ -107,7 +103,7 @@ export default function ForgotPasswordPage() {
           </div>
           <CardTitle className="text-lg">Reset password</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Uses the email you signed up with. Cognito emails a reset code; then choose a new password.
+            Enter the email for your account. We&apos;ll send a reset code so you can choose a new password.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -136,9 +132,6 @@ export default function ForgotPasswordPage() {
                   />
                 </div>
               </div>
-              {deliveryHint && !error ? (
-                <p className="text-sm text-emerald-600 dark:text-emerald-400">{deliveryHint}</p>
-              ) : null}
               {error ? (
                 <p className="text-sm text-destructive" role="alert">
                   {error}
@@ -150,9 +143,7 @@ export default function ForgotPasswordPage() {
             </>
           ) : (
             <>
-              {deliveryHint ? (
-                <p className="text-xs text-muted-foreground border rounded-md p-2 bg-muted/30">{deliveryHint}</p>
-              ) : null}
+              <p className="text-xs text-muted-foreground">{VERIFICATION_SPAM_HINT}</p>
               <div className="space-y-2">
                 <Label htmlFor="fp-code">Verification code</Label>
                 <Input

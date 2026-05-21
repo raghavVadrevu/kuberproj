@@ -137,7 +137,7 @@ export default function ConciergePage() {
                 )}>
                   <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
                 </div>
-                <span className="text-[10px] text-muted-foreground mt-1 px-1">
+                <span className="text-[11px] text-muted-foreground mt-1 px-1">
                   {formatTime(message.timestamp)}
                 </span>
               </div>

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import AuthHeroLayout from '@/components/auth/AuthHeroLayout'
 import { isCognitoConfigured } from '@/lib/cognito-config'
 import { formatCognitoError } from '@/lib/cognito-errors'
 
@@ -78,8 +79,8 @@ export default function LoginPage() {
 
   if (!isCognitoConfigured()) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10">
-        <Card className="w-full max-w-md glass border-primary/20">
+      <AuthHeroLayout>
+        <Card className="w-full glass border-primary/20 shadow-xl">
           <CardHeader>
             <CardTitle className="text-base">Cognito is not configured</CardTitle>
           </CardHeader>
@@ -90,13 +91,13 @@ export default function LoginPage() {
             </Button>
           </CardContent>
         </Card>
-      </div>
+      </AuthHeroLayout>
     )
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10">
-      <Card className="w-full max-w-md glass border-primary/20">
+    <AuthHeroLayout>
+      <Card className="w-full glass border-primary/20 shadow-xl">
         <CardHeader className="space-y-1 text-center">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
             <Sparkles className="h-6 w-6 text-primary-foreground" />
@@ -161,6 +162,6 @@ export default function LoginPage() {
           </p>
         </CardContent>
       </Card>
-    </div>
+    </AuthHeroLayout>
   )
 }

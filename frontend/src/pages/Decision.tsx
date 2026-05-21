@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { refreshNavBadges } from '@/contexts/NavBadgesContext'
 import {
   ACTIVE_GROUP_STORAGE_KEY,
   apiJson,
@@ -201,6 +202,7 @@ export default function DecisionPage() {
         return next
       })
       toast.success('Vote saved')
+      refreshNavBadges()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Vote failed')
     } finally {
@@ -374,7 +376,7 @@ export default function DecisionPage() {
                             variant={
                               proposal.status === 'active' ? 'default' : 'secondary'
                             }
-                            className="text-[10px]"
+                            className="text-[11px]"
                           >
                             {proposal.status === 'active' ? 'Active' : 'Closed'}
                           </Badge>
@@ -447,13 +449,13 @@ export default function DecisionPage() {
                                   {index + 1}
                                 </span>
                                 <span className="flex-1 text-sm">{opt.label}</span>
-                                <Badge variant="outline" className="text-[10px] tabular-nums">
+                                <Badge variant="outline" className="text-[11px] tabular-nums">
                                   {opt.first_choice_votes} 1st
                                 </Badge>
                                 {index === 0 ? (
                                   <Badge
                                     variant="outline"
-                                    className="border-primary/50 text-[10px] text-primary"
+                                    className="border-primary/50 text-[11px] text-primary"
                                   >
                                     Top choice
                                   </Badge>
@@ -576,7 +578,7 @@ export default function DecisionPage() {
                         <div className="flex -space-x-2">
                           {bestSlot.members.slice(0, 12).map((sub) => (
                             <Avatar key={sub} className="h-7 w-7 border-2 border-card">
-                              <AvatarFallback className="bg-indigo-500/50 text-[10px]">
+                              <AvatarFallback className="bg-indigo-500/50 text-[11px]">
                                 {subMonogram(sub)}
                               </AvatarFallback>
                             </Avatar>

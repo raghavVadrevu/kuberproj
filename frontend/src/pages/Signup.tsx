@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import AuthHeroLayout from '@/components/auth/AuthHeroLayout'
 import { isCognitoConfigured } from '@/lib/cognito-config'
 import { formatCognitoError } from '@/lib/cognito-errors'
 
@@ -23,15 +24,8 @@ function isValidOptionalPictureUrl(raw: string): boolean {
   }
 }
 
-function formatCodeDelivery(details: {
-  destination?: string
-  deliveryMedium?: string
-}): string | null {
-  if (!details?.destination && !details?.deliveryMedium) return null
-  const medium = details.deliveryMedium ?? 'UNKNOWN'
-  const dest = details.destination ?? '(destination not returned)'
-  return `Amazon Cognito reports: code sent by ${medium} to ${dest}.`
-}
+const VERIFICATION_SPAM_HINT =
+  "If you don't see the email, check your spam or junk folder."
 
 export default function SignupPage() {
   const [step, setStep] = useState<Step>('form')
@@ -47,7 +41,6 @@ export default function SignupPage() {
 
   const [confirmUsername, setConfirmUsername] = useState('')
   const [confirmCode, setConfirmCode] = useState('')
-  const [deliveryHint, setDeliveryHint] = useState<string | null>(null)
   const [resendMessage, setResendMessage] = useState<string | null>(null)
 
   const handleSubmitForm = async () => {
@@ -97,7 +90,6 @@ export default function SignupPage() {
         setConfirmUsername(emailNorm)
         setConfirmCode('')
         setResendMessage(null)
-        setDeliveryHint(formatCodeDelivery(result.nextStep.codeDeliveryDetails))
         setStep('confirm')
         return
       }
@@ -142,10 +134,8 @@ export default function SignupPage() {
     setResendMessage(null)
     setBusy(true)
     try {
-      const out = await resendSignUpCode({ username: confirmUsername })
-      const hint = formatCodeDelivery(out)
-      if (hint) setDeliveryHint(hint)
-      setResendMessage('A new code was requested. Check inbox and spam; delivery can take a minute.')
+      await resendSignUpCode({ username: confirmUsername })
+      setResendMessage('We sent a new code. Check your inbox and spam folder.')
     } catch (e) {
       setError(formatCognitoError(e))
     } finally {
@@ -155,8 +145,8 @@ export default function SignupPage() {
 
   if (!isCognitoConfigured()) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10">
-        <Card className="w-full max-w-lg glass border-primary/20">
+      <AuthHeroLayout>
+        <Card className="w-full glass border-primary/20 shadow-xl">
           <CardHeader>
             <CardTitle className="text-base">Cognito is not configured</CardTitle>
           </CardHeader>
@@ -178,14 +168,14 @@ export default function SignupPage() {
             </Button>
           </CardContent>
         </Card>
-      </div>
+      </AuthHeroLayout>
     )
   }
 
   if (step === 'done') {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10">
-        <Card className="w-full max-w-lg glass border-primary/20">
+      <AuthHeroLayout>
+        <Card className="w-full glass border-primary/20 shadow-xl">
           <CardHeader className="text-center space-y-2">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15">
               <Sparkles className="h-6 w-6 text-primary" />
@@ -207,42 +197,23 @@ export default function SignupPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
+      </AuthHeroLayout>
     )
   }
 
   if (step === 'confirm') {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10">
-        <Card className="w-full max-w-lg glass border-primary/20">
+      <AuthHeroLayout>
+        <Card className="w-full glass border-primary/20 shadow-xl">
           <CardHeader>
             <CardTitle className="text-base">Confirm your email</CardTitle>
             <p className="text-sm text-muted-foreground">
               Enter the verification code sent to{' '}
               <span className="font-medium text-foreground">{confirmUsername}</span>.
             </p>
-            {deliveryHint ? (
-              <p className="text-xs text-muted-foreground border border-border rounded-md p-2 bg-muted/30">
-                {deliveryHint}
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">Check spam if you do not see the email.</p>
-            )}
+            <p className="text-xs text-muted-foreground">{VERIFICATION_SPAM_HINT}</p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground space-y-2">
-              <p className="font-medium text-foreground">If nothing arrives</p>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>Check spam and promotions folders.</li>
-                <li>
-                  In AWS: Cognito user pool → <strong>Sign-up experience</strong> — email verification must be on.
-                </li>
-                <li>
-                  If you use <strong>Amazon SES</strong>, sandbox limits can block delivery to unverified addresses.
-                </li>
-                <li>You can confirm the user in the Cognito console under Users for testing.</li>
-              </ul>
-            </div>
             {resendMessage ? <p className="text-xs text-emerald-600 dark:text-emerald-400">{resendMessage}</p> : null}
             <div className="space-y-2">
               <Label htmlFor="code">Verification code</Label>
@@ -271,13 +242,13 @@ export default function SignupPage() {
             </Button>
           </CardContent>
         </Card>
-      </div>
+      </AuthHeroLayout>
     )
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10">
-      <Card className="w-full max-w-lg glass border-primary/20">
+    <AuthHeroLayout>
+      <Card className="w-full glass border-primary/20 shadow-xl">
         <CardHeader className="space-y-1 text-center">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
             <Sparkles className="h-6 w-6 text-primary-foreground" />
@@ -391,6 +362,6 @@ export default function SignupPage() {
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </AuthHeroLayout>
   )
 }

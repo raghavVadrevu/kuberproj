@@ -86,6 +86,8 @@
   }
   html {
     @apply bg-background overflow-x-hidden;
+    /* Slightly larger root type (~16px → 17px) so all rem-based text is easier to read */
+    font-size: 106.25%;
   }
   body {
     @apply bg-background text-foreground antialiased overflow-x-hidden;
@@ -126,4 +128,195 @@
 
 .glow-accent {
   box-shadow: 0 0 20px oklch(0.55 0.22 280 / 0.3);
+}
+
+@keyframes auth-hero-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.auth-hero-float {
+  animation: auth-hero-float 6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-hero-float {
+    animation: none;
+  }
+}
+
+/* Authenticated app shell — animated gradient mesh */
+.app-shell-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--background);
+}
+
+.app-shell-shimmer {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 90% 70% at 15% 25%, oklch(0.65 0.2 270 / 0.14), transparent 58%),
+    radial-gradient(ellipse 80% 65% at 85% 75%, oklch(0.55 0.22 280 / 0.12), transparent 55%),
+    radial-gradient(ellipse 75% 60% at 55% 45%, oklch(0.6 0.15 300 / 0.08), transparent 52%);
+  background-size: 140% 140%, 150% 150%, 160% 160%;
+  background-repeat: no-repeat;
+  animation: app-shell-shimmer-flow 14s ease-in-out infinite;
+  will-change: background-position;
+}
+
+.app-shell-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(64px);
+  will-change: transform, opacity;
+}
+
+.app-shell-orb--primary {
+  width: min(75vw, 40rem);
+  height: min(75vw, 40rem);
+  top: -15%;
+  left: -10%;
+  background: oklch(0.65 0.2 270 / 0.18);
+  animation: app-shell-drift-a 12s ease-in-out infinite;
+}
+
+.app-shell-orb--accent {
+  width: min(60vw, 32rem);
+  height: min(60vw, 32rem);
+  right: -10%;
+  bottom: 0%;
+  background: oklch(0.55 0.22 280 / 0.15);
+  animation: app-shell-drift-b 10s ease-in-out infinite;
+}
+
+.app-shell-orb--depth {
+  width: min(50vw, 26rem);
+  height: min(50vw, 26rem);
+  left: 28%;
+  top: 38%;
+  background: oklch(0.4 0.08 260 / 0.4);
+  animation: app-shell-drift-c 8s ease-in-out infinite;
+}
+
+.app-shell-orb--glow {
+  width: min(40vw, 20rem);
+  height: min(40vw, 20rem);
+  right: 22%;
+  top: 12%;
+  background: oklch(0.7 0.15 260 / 0.12);
+  animation: app-shell-drift-d 11s ease-in-out infinite;
+}
+
+@keyframes app-shell-shimmer-flow {
+  0%,
+  100% {
+    background-position:
+      0% 20%,
+      100% 80%,
+      50% 50%;
+  }
+  33% {
+    background-position:
+      70% 0%,
+      20% 100%,
+      80% 30%;
+  }
+  66% {
+    background-position:
+      100% 60%,
+      0% 40%,
+      25% 75%;
+  }
+}
+
+@keyframes app-shell-drift-a {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.85;
+  }
+  25% {
+    transform: translate(18%, 10%) scale(1.12);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(8%, 22%) scale(0.92);
+    opacity: 0.75;
+  }
+  75% {
+    transform: translate(-12%, 14%) scale(1.08);
+    opacity: 0.95;
+  }
+}
+
+@keyframes app-shell-drift-b {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.8;
+  }
+  33% {
+    transform: translate(-20%, -14%) scale(1.14);
+    opacity: 1;
+  }
+  66% {
+    transform: translate(6%, -22%) scale(0.9);
+    opacity: 0.7;
+  }
+}
+
+@keyframes app-shell-drift-c {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.55;
+  }
+  20% {
+    transform: translate(-14%, 16%) scale(1.18);
+    opacity: 0.85;
+  }
+  45% {
+    transform: translate(16%, 8%) scale(0.88);
+    opacity: 0.5;
+  }
+  70% {
+    transform: translate(10%, -12%) scale(1.1);
+    opacity: 0.75;
+  }
+}
+
+@keyframes app-shell-drift-d {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.6;
+  }
+  40% {
+    transform: translate(-16%, 20%) scale(1.15);
+    opacity: 0.9;
+  }
+  80% {
+    transform: translate(14%, -10%) scale(0.94);
+    opacity: 0.65;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell-shimmer,
+  .app-shell-orb {
+    animation: none;
+  }
+
+  .app-shell-shimmer {
+    background-position: 0% 20%, 100% 80%, 50% 50%;
+  }
 }
