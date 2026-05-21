@@ -11,3 +11,9 @@ node_modules/
 dist/
 build/
 .DS_Store
+
+# Docker local config / build cache (do not commit)
+docker-config-minimal/
+
+# Misc
+*.deb
