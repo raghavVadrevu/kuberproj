@@ -26,15 +26,36 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      # These act as defaults for LOCAL dev
       DB_HOST: postgres
       DB_PORT: "5432"
-      APP_ENV: local  # <--- Change to 'production' on your EC2
+      APP_ENV: local
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+
+  # --- NEW FRONTEND SERVICE ---
+  frontend:
+    build:
+      context: ./frontend
+      # Assuming you have a Dockerfile in your frontend folder. 
+      # If not, let me know and we can run it directly using a node image!
+      dockerfile: Dockerfile 
+    container_name: the-huddle-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173" # Vite's default port. Change if your app uses 3000
+    volumes:
+      # This syncs your local code into the container for hot-reloading!
+      - ./frontend:/app 
+      # This prevents your host machine from overriding the container's installed packages
+      - /app/node_modules 
+    environment:
+      # Tells your Vite app where to find the local backend
+      - VITE_API_URL=http://localhost:8000 
+    depends_on:
+      - api
 
 volumes:
   the-huddle-pgdata:

@@ -1,0 +1,49 @@
+name: Deploy Frontend to S3 and CloudFront
+
+on:
+  push:
+    branches:
+      - main # Change this if your default branch is 'master'
+    paths:
+      - 'frontend/**' # Only triggers when files in the frontend folder change
+
+# These permissions are required for OIDC authentication with AWS
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    
+    # Run all shell commands inside the frontend directory
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::992382597855:role/GitHubActions-HuddleDeploy-Role
+          aws-region: ap-south-1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.4' # Update this if you are using a different Node version
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Vite App
+        run: npm run build
+
+      - name: Deploy to S3
+        run: aws s3 sync dist/ s3://huddle-frontend-1001 --delete
+
+      - name: Invalidate CloudFront Cache
+        run: aws cloudfront create-invalidation --distribution-id E1NCC97JSN88P5 --paths "/*"
