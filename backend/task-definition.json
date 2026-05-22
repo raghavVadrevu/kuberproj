@@ -1,139 +1,91 @@
 {
-    "taskDefinitionArn": "arn:aws:ecs:ap-south-1:992382597855:task-definition/huddle-backend-task:4",
-    "containerDefinitions": [
-      {
-        "name": "huddle-backend-container",
-        "image": "992382597855.dkr.ecr.ap-south-1.amazonaws.com/huddle-backend@sha256:147dd6da8f5417f201bc23a6052613dfdcadd9b46d67d4572e789eea949bd2b4",
-        "cpu": 0,
-        "portMappings": [
-          {
-            "containerPort": 8000,
-            "hostPort": 8000,
-            "protocol": "tcp",
-            "name": "huddle-backend-container-8000-tcp",
-            "appProtocol": "http"
-          }
-        ],
-        "essential": true,
-        "environment": [
-          {
-            "name": "COGNITO_JWKS_URL",
-            "value": "https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_53wE9sQTW/.well-known/jwks.json"
-          },
-          {
-            "name": "COGNITO_AUDIENCE",
-            "value": "43hgtlechp98b2f7elol5aim0k"
-          },
-          {
-            "name": "DATABASE_URL",
-            "value": "postgresql+psycopg2://postgres:HuddleRds@huddle-db.c7w8y442ora0.ap-south-1.rds.amazonaws.com:5432/postgres"
-          },
-          {
-            "name": "DB_USER",
-            "value": "postgres"
-          },
-          {
-            "name": "APP_NAME",
-            "value": "The Huddle API"
-          },
-          {
-            "name": "COGNITO_REGION",
-            "value": "ap-south-1"
-          },
-          {
-            "name": "COGNITO_APP_CLIENT_ID",
-            "value": "43hgtlechp98b2f7elol5aim0k"
-          },
-          {
-            "name": "DB_NAME",
-            "value": "postgres"
-          },
-          {
-            "name": "COGNITO_ISSUER",
-            "value": "https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_53wE9sQTW"
-          },
-          {
-            "name": "COGNITO_USER_POOL_ID",
-            "value": "ap-south-1_53wE9sQTW"
-          },
-          {
-            "name": "DB_HOST",
-            "value": "huddle-db.c7w8y442ora0.ap-south-1.rds.amazonaws.com"
-          },
-          {
-            "name": "DB_PASSWORD",
-            "value": "HuddleRds"
-          }
-        ],
-        "environmentFiles": [],
-        "mountPoints": [],
-        "volumesFrom": [],
-        "ulimits": [],
-        "logConfiguration": {
-          "logDriver": "awslogs",
-          "options": {
-            "awslogs-group": "/ecs/huddle-backend-task",
-            "awslogs-create-group": "true",
-            "awslogs-region": "ap-south-1",
-            "awslogs-stream-prefix": "ecs"
-          },
-          "secretOptions": []
+  "family": "huddle-backend-task",
+  "taskRoleArn": "arn:aws:iam::992382597855:role/ecsTaskExecutionRole",
+  "executionRoleArn": "arn:aws:iam::992382597855:role/ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "containerDefinitions": [
+    {
+      "name": "huddle-backend-container",
+      "image": "992382597855.dkr.ecr.ap-south-1.amazonaws.com/huddle-backend",
+      "cpu": 0,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "hostPort": 8000,
+          "protocol": "tcp",
+          "name": "huddle-backend-container-8000-tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "COGNITO_JWKS_URL",
+          "value": "https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_53wE9sQTW/.well-known/jwks.json"
         },
-        "systemControls": []
+        {
+          "name": "COGNITO_AUDIENCE",
+          "value": "43hgtlechp98b2f7elol5aim0k"
+        },
+        {
+          "name": "DATABASE_URL",
+          "value": "postgresql+psycopg2://postgres:HuddleRds@huddle-db.c7w8y442ora0.ap-south-1.rds.amazonaws.com:5432/postgres"
+        },
+        {
+          "name": "DB_USER",
+          "value": "postgres"
+        },
+        {
+          "name": "APP_NAME",
+          "value": "The Huddle API"
+        },
+        {
+          "name": "COGNITO_REGION",
+          "value": "ap-south-1"
+        },
+        {
+          "name": "COGNITO_APP_CLIENT_ID",
+          "value": "43hgtlechp98b2f7elol5aim0k"
+        },
+        {
+          "name": "DB_NAME",
+          "value": "postgres"
+        },
+        {
+          "name": "COGNITO_ISSUER",
+          "value": "https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_53wE9sQTW"
+        },
+        {
+          "name": "COGNITO_USER_POOL_ID",
+          "value": "ap-south-1_53wE9sQTW"
+        },
+        {
+          "name": "DB_HOST",
+          "value": "huddle-db.c7w8y442ora0.ap-south-1.rds.amazonaws.com"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "value": "HuddleRds"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/huddle-backend-task",
+          "awslogs-create-group": "true",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
       }
-    ],
-    "family": "huddle-backend-task",
-    "executionRoleArn": "arn:aws:iam::992382597855:role/ecsTaskExecutionRole",
-    "networkMode": "awsvpc",
-    "revision": 4,
-    "volumes": [],
-    "status": "ACTIVE",
-    "requiresAttributes": [
-      {
-        "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
-      },
-      {
-        "name": "ecs.capability.execution-role-awslogs"
-      },
-      {
-        "name": "com.amazonaws.ecs.capability.ecr-auth"
-      },
-      {
-        "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
-      },
-      {
-        "name": "com.amazonaws.ecs.capability.docker-remote-api.1.21"
-      },
-      {
-        "name": "ecs.capability.execution-role-ecr-pull"
-      },
-      {
-        "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
-      },
-      {
-        "name": "ecs.capability.task-eni"
-      },
-      {
-        "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
-      }
-    ],
-    "placementConstraints": [],
-    "compatibilities": [
-      "EC2",
-      "MANAGED_INSTANCES",
-      "FARGATE"
-    ],
-    "runtimePlatform": {
-      "cpuArchitecture": "X86_64",
-      "operatingSystemFamily": "LINUX"
-    },
-    "requiresCompatibilities": [
-      "FARGATE"
-    ],
-    "cpu": "512",
-    "memory": "1024",
-    "registeredAt": "2026-05-20T06:14:57.428Z",
-    "registeredBy": "arn:aws:iam::992382597855:user/huddle_project",
-    "enableFaultInjection": false,
-    "tags": []
-  }
+    }
+  ]
+}
