@@ -167,6 +167,16 @@ export type VaultItemDto = {
   updated_at: string
 }
 
+export type ChatMessageDto = {
+  id: string
+  group_id: string
+  sender_sub: string
+  sender_display_name: string | null
+  content: string
+  created_at: string
+  is_ai: boolean
+}
+
 export const VAULT_CATEGORIES = ['Access Codes', 'Locations', 'Links'] as const
 
 export const ACTIVE_GROUP_STORAGE_KEY = 'huddle:activeGroupId'

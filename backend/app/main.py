@@ -6,7 +6,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_schema
 from app.healthcheck import build_health_payload, set_schema_init_status
-from app.routers import friends, group_polls, group_tab, group_vault, groups, me
+from app.routers import (
+    friends,
+    group_chat,
+    group_polls,
+    group_tab,
+    group_vault,
+    groups,
+    me,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +35,7 @@ app.include_router(groups.router)
 app.include_router(group_polls.router)
 app.include_router(group_tab.router)
 app.include_router(group_vault.router)
+app.include_router(group_chat.router)
 
 
 @app.on_event("startup")

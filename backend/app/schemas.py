@@ -181,3 +181,13 @@ class VaultItemOut(BaseModel):
     created_by: str
     created_at: str
     updated_at: str
+
+
+class ChatMessageOut(BaseModel):
+    id: UUID
+    group_id: UUID
+    sender_sub: str
+    sender_display_name: str | None = None
+    content: str
+    created_at: str
+    is_ai: bool = False

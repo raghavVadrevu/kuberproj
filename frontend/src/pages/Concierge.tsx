@@ -1,203 +1,567 @@
-import { useState, useRef, useEffect } from 'react'
-import { Send, Sparkles, User, ArrowRight, MessageSquare, Vote, Wallet, Calendar } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { Send, Sparkles, Users } from 'lucide-react'
+import { toast } from 'sonner'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
+import { GroupChatClient } from '@/lib/group-chat'
+import {
+  applyMention,
+  buildMentionSuggestions,
+  formatTypingLabel,
+  getActiveMention,
+  type MentionOption,
+} from '@/lib/chat-mentions'
+import {
+  ACTIVE_GROUP_STORAGE_KEY,
+  apiJson,
+  resolveActiveGroupId,
+  type ChatMessageDto,
+  type GroupDetailDto,
+  type GroupDto,
+  type GroupMemberDto,
+  type UserProfileDto,
+} from '@/lib/api'
 
-interface Message {
-  id: number
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
+const TYPING_STALE_MS = 3500
+const TYPING_SEND_DEBOUNCE_MS = 400
+const TYPING_STOP_MS = 2000
+
+function initialsFromName(name: string | null | undefined, sub: string): string {
+  if (name?.trim()) {
+    const p = name.trim().split(/\s+/)
+    if (p.length >= 2) return (p[0]![0] + p[1]![0]).toUpperCase()
+    return name.slice(0, 2).toUpperCase()
+  }
+  const alnum = sub.replace(/[^a-zA-Z0-9]/g, '')
+  if (alnum.length >= 2) return alnum.slice(0, 2).toUpperCase()
+  return sub.slice(0, 2).toUpperCase()
 }
 
-const suggestedPrompts = [
-  { icon: MessageSquare, text: 'Summarize the cabin trip thread' },
-  { icon: Vote, text: "Who hasn't voted yet?" },
-  { icon: Wallet, text: "What's our remaining budget?" },
-  { icon: Calendar, text: 'When is everyone free this weekend?' },
-]
+function memberLabel(m: GroupMemberDto): string {
+  return m.display_name?.trim() || m.email?.split('@')[0] || 'Member'
+}
 
-const initialMessages: Message[] = [
-  {
-    id: 1,
-    role: 'assistant',
-    content: "Hey! I'm the Huddle AI Concierge. I can help you catch up on group activity, track expenses, check voting status, and more. What would you like to know?",
-    timestamp: new Date(),
-  },
-]
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 export default function ConciergePage() {
-  const [messages, setMessages] = useState<Message[]>(initialMessages)
+  const location = useLocation()
+  const [groups, setGroups] = useState<GroupDto[]>([])
+  const [groupId, setGroupId] = useState<string | null>(null)
+  const [groupName, setGroupName] = useState<string | null>(null)
+  const [members, setMembers] = useState<GroupMemberDto[]>([])
+  const [meSub, setMeSub] = useState<string | null>(null)
+  const [meDisplayName, setMeDisplayName] = useState<string | null>(null)
+  const [messages, setMessages] = useState<ChatMessageDto[]>([])
+  const [streaming, setStreaming] = useState<Record<string, string>>({})
+  const [typingAt, setTypingAt] = useState<Record<string, number>>({})
   const [inputValue, setInputValue] = useState('')
-  const [isTyping, setIsTyping] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const [cursorPos, setCursorPos] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const chatClientRef = useRef<GroupChatClient | null>(null)
+  const typingSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isTypingActiveRef = useRef(false)
+
+  const activeMention = useMemo(
+    () => getActiveMention(inputValue, cursorPos),
+    [inputValue, cursorPos],
+  )
+
+  const mentionSuggestions = useMemo(() => {
+    if (!activeMention) return []
+    return buildMentionSuggestions(activeMention.query, members, meSub)
+  }, [activeMention, members, meSub])
+
+  const showMentions = activeMention !== null && mentionSuggestions.length > 0
+
+  const upsertMessage = useCallback((msg: ChatMessageDto) => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) {
+        return prev.map((m) => (m.id === msg.id ? msg : m))
+      }
+      return [...prev, msg]
+    })
+  }, [])
+
+  const appendAiToken = useCallback((streamId: string, chunk: string) => {
+    setStreaming((prev) => ({
+      ...prev,
+      [streamId]: (prev[streamId] ?? '') + chunk,
+    }))
+  }, [])
+
+  const clearAiStream = useCallback((streamId: string) => {
+    setStreaming((prev) => {
+      const next = { ...prev }
+      delete next[streamId]
+      return next
+    })
+  }, [])
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior })
+  }, [])
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    scrollToBottom(messages.length <= 3 ? 'auto' : 'smooth')
+  }, [messages, streaming, scrollToBottom])
+
+  const memberNameBySub = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const m of members) {
+      map.set(m.user_sub, memberLabel(m))
     }
-  }, [messages])
+    if (meSub) {
+      const mine =
+        meDisplayName?.trim() ||
+        members.find((m) => m.user_sub === meSub)?.display_name?.trim()
+      if (mine) map.set(meSub, mine)
+    }
+    return map
+  }, [members, meSub, meDisplayName])
+
+  const resolveSenderDisplayName = useCallback(
+    (
+      senderSub: string,
+      senderDisplayName: string | null | undefined,
+      isAi: boolean,
+    ): string => {
+      if (isAi) return senderDisplayName?.trim() || 'Huddle AI'
+      const fromMsg = senderDisplayName?.trim()
+      if (fromMsg) return fromMsg
+      return memberNameBySub.get(senderSub) ?? 'Member'
+    },
+    [memberNameBySub],
+  )
+
+  const typingNames = useMemo(() => {
+    const now = Date.now()
+    return Object.entries(typingAt)
+      .filter(([sub, at]) => sub !== meSub && now - at < TYPING_STALE_MS)
+      .map(([sub]) => memberNameBySub.get(sub) ?? 'Someone')
+  }, [typingAt, meSub, memberNameBySub])
+
+  const typingLabel = formatTypingLabel(typingNames)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now()
+      setTypingAt((prev) => {
+        const next: Record<string, number> = {}
+        let changed = false
+        for (const [sub, at] of Object.entries(prev)) {
+          if (now - at < TYPING_STALE_MS) {
+            next[sub] = at
+          } else {
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const stopTypingSignal = useCallback(() => {
+    if (typingSendTimerRef.current) {
+      clearTimeout(typingSendTimerRef.current)
+      typingSendTimerRef.current = null
+    }
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current)
+      typingStopTimerRef.current = null
+    }
+    if (isTypingActiveRef.current) {
+      isTypingActiveRef.current = false
+      void chatClientRef.current?.sendTyping(false)
+    }
+  }, [])
+
+  const scheduleTypingSignal = useCallback(() => {
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current)
+    }
+    typingStopTimerRef.current = setTimeout(() => {
+      stopTypingSignal()
+    }, TYPING_STOP_MS)
+
+    if (isTypingActiveRef.current) return
+
+    if (typingSendTimerRef.current) {
+      clearTimeout(typingSendTimerRef.current)
+    }
+    typingSendTimerRef.current = setTimeout(() => {
+      isTypingActiveRef.current = true
+      void chatClientRef.current?.sendTyping(true)
+    }, TYPING_SEND_DEBOUNCE_MS)
+  }, [stopTypingSignal])
+
+  const loadGroupContext = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [me, groupList] = await Promise.all([
+        apiJson<UserProfileDto>('/me'),
+        apiJson<GroupDto[]>('/groups'),
+      ])
+      setMeSub(me.sub)
+      setMeDisplayName(me.display_name)
+      setGroups(groupList)
+      const gid = resolveActiveGroupId(groupList)
+      setGroupId(gid)
+
+      if (!gid) {
+        setGroupName(null)
+        setMembers([])
+        setMessages([])
+        return
+      }
+
+      const [detail, history] = await Promise.all([
+        apiJson<GroupDetailDto>(`/groups/${gid}`),
+        apiJson<ChatMessageDto[]>(`/groups/${gid}/chat/messages`),
+      ])
+      setGroupName(detail.name)
+      setMembers(detail.members)
+      setMessages(history)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not load group chat')
+      setMessages([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadGroupContext()
+  }, [loadGroupContext])
+
+  useEffect(() => {
+    if (location.pathname === '/ai' || location.pathname === '/concierge') {
+      void loadGroupContext()
+    }
+  }, [location.pathname, loadGroupContext])
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === ACTIVE_GROUP_STORAGE_KEY) {
+        void loadGroupContext()
+      }
+    }
+    const onFocus = () => void loadGroupContext()
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [loadGroupContext])
+
+  useEffect(() => {
+    const client = new GroupChatClient()
+    chatClientRef.current = client
+    return () => {
+      stopTypingSignal()
+      client.disconnect()
+      chatClientRef.current = null
+    }
+  }, [stopTypingSignal])
+
+  useEffect(() => {
+    if (!groupId || !meSub) return
+
+    const client = chatClientRef.current
+    if (!client) return
+
+    let cancelled = false
+
+    void client
+      .connect(groupId, {
+        onMessage: (msg) => {
+          if (!cancelled) upsertMessage(msg)
+        },
+        onAiToken: (streamId, chunk) => {
+          if (!cancelled) appendAiToken(streamId, chunk)
+        },
+        onAiStreamEnd: (streamId, msg) => {
+          if (!cancelled) {
+            clearAiStream(streamId)
+            upsertMessage(msg)
+          }
+        },
+        onTyping: (userSub, active) => {
+          if (cancelled || userSub === meSub) return
+          setTypingAt((prev) => {
+            if (!active) {
+              if (!(userSub in prev)) return prev
+              const next = { ...prev }
+              delete next[userSub]
+              return next
+            }
+            return { ...prev, [userSub]: Date.now() }
+          })
+        },
+        onError: (detail) => {
+          if (cancelled) return
+          // Ignore stale server responses when typing events are unsupported
+          if (detail.includes("message type")) return
+          toast.error(detail)
+        },
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast.error('Could not connect to group chat')
+        }
+      })
+
+    return () => {
+      cancelled = true
+      client.disconnect()
+    }
+  }, [groupId, meSub, upsertMessage, appendAiToken, clearAiStream])
+
+  const syncInputCursor = () => {
+    const el = inputRef.current
+    if (el) setCursorPos(el.selectionStart ?? el.value.length)
+  }
+
+  const handleInputChange = (value: string) => {
+    setInputValue(value)
+    setMentionIndex(0)
+    scheduleTypingSignal()
+    requestAnimationFrame(syncInputCursor)
+  }
+
+  const pickMention = (option: MentionOption) => {
+    if (!activeMention) return
+    const { nextValue, nextCursor } = applyMention(
+      inputValue,
+      activeMention.start,
+      cursorPos,
+      option.insert,
+    )
+    setInputValue(nextValue)
+    setMentionIndex(0)
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(nextCursor, nextCursor)
+      setCursorPos(nextCursor)
+    })
+  }
 
   const handleSend = async (text: string) => {
-    if (!text.trim()) return
+    if (!text.trim() || sending || !groupId) return
 
-    const userMessage: Message = {
-      id: Date.now(),
-      role: 'user',
-      content: text,
-      timestamp: new Date(),
-    }
-
-    setMessages(prev => [...prev, userMessage])
+    stopTypingSignal()
+    setSending(true)
     setInputValue('')
-    setIsTyping(true)
+    setMentionIndex(0)
 
-    // Simulate AI response
-    setTimeout(() => {
-      const responses: Record<string, string> = {
-        'summarize': "📍 **Cabin Trip Summary**\n\nThe July 4th Lake Tahoe trip is confirmed! Here's what you need to know:\n\n• **8 confirmed** attendees (Alex & Jordan still pending)\n• **Total budget**: $2,400 spent of $3,000\n• **Check-in**: July 3rd, 4PM\n• **Key decisions**: Groceries assigned to Emma, activities TBD\n\nWould you like me to ping Alex and Jordan for their RSVPs?",
-        'voted': "📊 **Voting Status**\n\nFor the \"July Trip Destination\" poll:\n\n✅ **Voted (8)**: Alex, Sarah, Mike, Jordan, Chris, Emma, David, Kate\n❌ **Not Voted (2)**: Riley, Lisa\n\n⏰ Poll closes in 3 days. Want me to send a reminder to Riley and Lisa?",
-        'budget': "💰 **Group Budget Status**\n\n**Total Pool**: $3,000\n**Spent**: $2,400 (80%)\n**Remaining**: $600\n\n**Breakdown**:\n• Lodging: $1,500\n• Food & Drinks: $650\n• Activities: $250\n\nAt current pace, you'll have about $150 buffer. Need me to flag any specific expenses?",
-        'weekend': "📅 **Weekend Availability**\n\nBased on the heatmap data:\n\n**Best Time**: Saturday Evening (9/10 available)\n• Only Mike can't make it\n\n**Runner Up**: Sunday Afternoon (7/10 available)\n\nWant me to create a poll for Saturday evening activities?",
-      }
-
-      let responseText = "I'm analyzing the group's data now. Let me get that information for you..."
-      
-      const lowerText = text.toLowerCase()
-      if (lowerText.includes('summarize') || lowerText.includes('cabin')) {
-        responseText = responses['summarize']
-      } else if (lowerText.includes('voted') || lowerText.includes('vote')) {
-        responseText = responses['voted']
-      } else if (lowerText.includes('budget') || lowerText.includes('money') || lowerText.includes('remaining')) {
-        responseText = responses['budget']
-      } else if (lowerText.includes('weekend') || lowerText.includes('free') || lowerText.includes('available')) {
-        responseText = responses['weekend']
-      }
-
-      const aiMessage: Message = {
-        id: Date.now(),
-        role: 'assistant',
-        content: responseText,
-        timestamp: new Date(),
-      }
-      setMessages(prev => [...prev, aiMessage])
-      setIsTyping(false)
-    }, 1500)
+    try {
+      await chatClientRef.current?.sendMessage(text)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to send message')
+      setInputValue(text)
+    } finally {
+      setSending(false)
+    }
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    handleSend(inputValue)
+    if (showMentions && mentionSuggestions[mentionIndex]) {
+      pickMention(mentionSuggestions[mentionIndex]!)
+      return
+    }
+    void handleSend(inputValue)
   }
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showMentions) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setMentionIndex((i) => (i + 1) % mentionSuggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setMentionIndex(
+        (i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length,
+      )
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setMentionIndex(0)
+    }
+  }
+
+  const displayMessages = (): Array<
+    ChatMessageDto | { streamId: string; content: string; is_ai: true }
+  > => {
+    const items: Array<
+      ChatMessageDto | { streamId: string; content: string; is_ai: true }
+    > = [...messages]
+    for (const [streamId, content] of Object.entries(streaming)) {
+      if (content) {
+        items.push({ streamId, content, is_ai: true })
+      }
+    }
+    return items
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-8rem)] text-muted-foreground text-sm">
+        Loading chat…
+      </div>
+    )
+  }
+
+  if (!groupId) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] gap-4 text-center px-6">
+        <Users className="w-10 h-10 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          Join or create a group to start chatting with your crew.
+        </p>
+        <Button asChild variant="secondary">
+          <Link to="/groups">Go to Groups</Link>
+        </Button>
+      </div>
+    )
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] lg:h-[calc(100vh-5rem)]">
-      {/* Messages */}
-      <ScrollArea className="flex-1" ref={scrollRef}>
-        <div className="py-4 space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={cn(
-                'flex gap-3',
-                message.role === 'user' && 'flex-row-reverse'
-              )}
-            >
-              <Avatar className={cn(
-                'w-8 h-8 shrink-0',
-                message.role === 'assistant' && 'bg-gradient-to-br from-primary to-accent'
-              )}>
-                <AvatarFallback className={cn(
-                  'text-xs',
-                  message.role === 'assistant' && 'bg-transparent text-primary-foreground'
-                )}>
-                  {message.role === 'assistant' ? (
-                    <Sparkles className="w-4 h-4" />
-                  ) : (
-                    <User className="w-4 h-4" />
-                  )}
-                </AvatarFallback>
-              </Avatar>
-              <div className={cn(
-                'flex-1 max-w-[80%]',
-                message.role === 'user' && 'flex flex-col items-end'
-              )}>
-                <div className={cn(
-                  'rounded-2xl px-4 py-3',
-                  message.role === 'assistant' 
-                    ? 'bg-card border border-border rounded-tl-sm' 
-                    : 'bg-primary text-primary-foreground rounded-tr-sm'
-                )}>
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                </div>
-                <span className="text-[11px] text-muted-foreground mt-1 px-1">
-                  {formatTime(message.timestamp)}
-                </span>
-              </div>
-            </div>
-          ))}
+    <div className="flex flex-col h-[calc(100vh-8rem)] lg:h-[calc(100vh-5rem)] min-h-0 overflow-hidden">
+      <header className="shrink-0 pb-3 border-b border-border">
+        <p className="text-xs text-muted-foreground">Group chat</p>
+        <h1 className="text-lg font-semibold truncate">{groupName ?? 'Your group'}</h1>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Tag <span className="font-medium text-foreground">@huddle</span> to ask the AI
+        </p>
+      </header>
 
-          {isTyping && (
-            <div className="flex gap-3">
-              <Avatar className="w-8 h-8 bg-gradient-to-br from-primary to-accent">
-                <AvatarFallback className="bg-transparent text-primary-foreground">
-                  <Sparkles className="w-4 h-4" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-              </div>
-            </div>
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar">
+        <div className="py-4 px-1 space-y-4">
+          {displayMessages().length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Say hi to {groupName ?? 'your group'}. Mention @huddle when you want AI help.
+            </p>
           )}
-        </div>
-      </ScrollArea>
 
-      {/* Suggested Prompts */}
-      {messages.length <= 2 && (
-        <div className="pb-2">
-            <p className="text-xs text-muted-foreground mb-2">Try asking:</p>
-            <div className="flex flex-wrap gap-2">
-              {suggestedPrompts.map((prompt, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSend(prompt.text)}
-                  className="flex items-center gap-2 px-3 py-2 bg-secondary/50 hover:bg-secondary rounded-full text-xs text-foreground transition-colors group"
-                >
-                  <prompt.icon className="w-3.5 h-3.5 text-muted-foreground" />
-                  <span>{prompt.text}</span>
-                  <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
+          {displayMessages().map((item) => {
+            if ('streamId' in item) {
+              return (
+                <ChatBubble
+                  key={item.streamId}
+                  isOwn={false}
+                  isAi
+                  displayName="Huddle AI"
+                  content={item.content}
+                  timestamp={null}
+                  senderSub=""
+                />
+              )
+            }
+
+            const isOwn = item.sender_sub === meSub
+            const displayName = resolveSenderDisplayName(
+              item.sender_sub,
+              item.sender_display_name,
+              item.is_ai,
+            )
+            return (
+              <ChatBubble
+                key={item.id}
+                isOwn={isOwn}
+                isAi={item.is_ai}
+                displayName={displayName}
+                content={item.content}
+                timestamp={item.created_at}
+                senderSub={item.sender_sub}
+              />
+            )
+          })}
+
+          {typingLabel && (
+            <p className="text-xs text-muted-foreground px-2 animate-pulse">
+              {typingLabel}
+            </p>
+          )}
+
+          <div ref={messagesEndRef} className="h-px shrink-0" aria-hidden />
+        </div>
+      </div>
+
+      <footer className="shrink-0 border-t border-border bg-card/80 backdrop-blur-sm py-3">
+        <form onSubmit={handleSubmit} className="relative">
+          {showMentions && (
+            <ul
+              className="absolute bottom-full left-0 right-0 mb-2 max-h-48 overflow-y-auto no-scrollbar rounded-xl border border-border bg-popover shadow-lg z-20 py-1"
+              role="listbox"
+            >
+              {mentionSuggestions.map((opt, i) => (
+                <li key={opt.id} role="option" aria-selected={i === mentionIndex}>
+                  <button
+                    type="button"
+                    className={cn(
+                      'w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent',
+                      i === mentionIndex && 'bg-accent',
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      pickMention(opt)
+                    }}
+                  >
+                    {opt.kind === 'ai' ? (
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground">
+                        <Sparkles className="h-3.5 w-3.5" />
+                      </span>
+                    ) : (
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                        {initialsFromName(opt.label, opt.id)}
+                      </span>
+                    )}
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="text-muted-foreground text-xs ml-auto">
+                      @{opt.insert}
+                    </span>
+                  </button>
+                </li>
               ))}
-            </div>
-        </div>
-      )}
+            </ul>
+          )}
 
-      {/* Input */}
-      <div className="py-4 border-t border-border bg-card/50">
-        <form onSubmit={handleSubmit}>
           <div className="flex gap-2">
             <div className="flex-1 relative">
               <Input
+                ref={inputRef}
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Ask the Huddle AI anything..."
+                onChange={(e) => handleInputChange(e.target.value)}
+                onKeyDown={handleInputKeyDown}
+                onKeyUp={syncInputCursor}
+                onClick={syncInputCursor}
+                onBlur={stopTypingSignal}
+                placeholder="Message your group… @huddle for AI"
                 className="pr-12 h-12 rounded-xl bg-background"
+                disabled={sending}
+                autoComplete="off"
               />
               <Button
                 type="submit"
                 size="icon"
-                disabled={!inputValue.trim() || isTyping}
+                disabled={!inputValue.trim() || sending}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 rounded-lg"
               >
                 <Send className="w-4 h-4" />
@@ -205,6 +569,85 @@ export default function ConciergePage() {
             </div>
           </div>
         </form>
+        {groups.length > 1 && (
+          <p className="text-[11px] text-muted-foreground mt-2 px-0.5">
+            Active group from Pulse. Switch on{' '}
+            <Link to="/groups" className="underline underline-offset-2">
+              Groups
+            </Link>
+            .
+          </p>
+        )}
+      </footer>
+    </div>
+  )
+}
+
+function ChatBubble({
+  isOwn,
+  isAi,
+  displayName,
+  content,
+  timestamp,
+  senderSub,
+}: {
+  isOwn: boolean
+  isAi: boolean
+  displayName: string
+  content: string
+  timestamp: string | null
+  senderSub: string
+}) {
+  return (
+    <div className={cn('flex gap-3', isOwn && 'flex-row-reverse')}>
+      <Avatar
+        className={cn(
+          'w-8 h-8 shrink-0',
+          isAi && 'bg-gradient-to-br from-primary to-accent',
+        )}
+      >
+        <AvatarFallback
+          className={cn(
+            'text-xs',
+            isAi && 'bg-transparent text-primary-foreground',
+          )}
+        >
+          {isAi ? (
+            <Sparkles className="w-4 h-4" />
+          ) : (
+            initialsFromName(displayName, senderSub)
+          )}
+        </AvatarFallback>
+      </Avatar>
+      <div
+        className={cn(
+          'flex-1 max-w-[80%]',
+          isOwn && 'flex flex-col items-end',
+        )}
+      >
+        <span
+          className={cn(
+            'text-[11px] font-medium text-muted-foreground mb-1 px-1',
+            isOwn && 'text-right',
+          )}
+        >
+          {displayName}
+        </span>
+        <div
+          className={cn(
+            'rounded-2xl px-4 py-3',
+            isAi || !isOwn
+              ? 'bg-card border border-border rounded-tl-sm'
+              : 'bg-primary text-primary-foreground rounded-tr-sm',
+          )}
+        >
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{content}</p>
+        </div>
+        {timestamp && (
+          <span className="text-[11px] text-muted-foreground mt-1 px-1">
+            {formatTime(timestamp)}
+          </span>
+        )}
       </div>
     </div>
   )

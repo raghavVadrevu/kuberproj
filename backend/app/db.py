@@ -220,6 +220,17 @@ def init_schema() -> None:
     );
 
     CREATE INDEX IF NOT EXISTS idx_group_vault_items_group ON group_vault_items(group_id);
+
+    CREATE TABLE IF NOT EXISTS group_chat_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      sender_sub TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_group_chat_messages_group_created
+      ON group_chat_messages(group_id, created_at);
     """
     with get_connection() as conn:
         conn.execute(ddl)
