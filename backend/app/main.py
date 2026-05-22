@@ -18,6 +18,7 @@ from app.routers import (
 
 logger = logging.getLogger(__name__)
 
+# API entrypoint
 app = FastAPI(title=os.environ.get("APP_NAME", "The Huddle API"))
 
 _origins = os.environ.get("CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173").split(",")
