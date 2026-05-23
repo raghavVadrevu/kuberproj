@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
+import { PageLoader } from '@/components/ui/page-loader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -29,6 +30,7 @@ import {
   type PulseTldrDto,
   type TabOverviewDto,
 } from '@/lib/api'
+import { getUserErrorMessage } from '@/lib/user-errors'
 
 const categoryIcons: Record<string, React.ElementType> = {
   food: Pizza,
@@ -114,7 +116,7 @@ export default function PulsePage() {
       setTabOverview(tabData)
       setTldr(tldrData.tldr)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load pulse')
+      setError(getUserErrorMessage(e, "Couldn't load your pulse. Try again."))
       setPolls([])
       setTabOverview(null)
       setTldr(null)
@@ -148,7 +150,7 @@ export default function PulsePage() {
       return 'Create or join a group to see proposals and shared tabs here.'
     }
     if (error) {
-      return `Could not refresh: ${error}. Try again from Profile after checking the API.`
+      return error
     }
     if (tldrLoading) {
       return null
@@ -160,6 +162,10 @@ export default function PulsePage() {
     if (!groupId) return null
     return groupsList.find((g) => g.id === groupId)?.name ?? 'Your group'
   }, [groupId, groupsList])
+
+  if (signedIn && loading && !error) {
+    return <PageLoader label="Loading your pulse…" />
+  }
 
   return (
     <div className="space-y-6 py-4 lg:py-6">

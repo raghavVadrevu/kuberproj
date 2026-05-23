@@ -15,6 +15,7 @@ import {
 import { formatDistanceToNow } from 'date-fns'
 import { toast } from 'sonner'
 
+import { PageLoader } from '@/components/ui/page-loader'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -46,6 +47,7 @@ import {
   type GroupDto,
   type TabOverviewDto,
 } from '@/lib/api'
+import { toastUserError } from '@/lib/user-errors'
 
 const categoryIcons: Record<string, React.ElementType> = {
   food: Pizza,
@@ -103,7 +105,7 @@ export default function TabPage() {
         localStorage.setItem(ACTIVE_GROUP_STORAGE_KEY, pick)
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load groups')
+      toastUserError(e, "Couldn't load your groups. Try again.")
       setGroupId(null)
     } finally {
       setLoadingGroups(false)
@@ -125,7 +127,7 @@ export default function TabPage() {
         return data.viewer_sub
       })
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load tab')
+      toastUserError(e, "Couldn't load the shared tab. Try again.")
       setOverview(null)
     } finally {
       setLoadingTab(false)
@@ -207,7 +209,7 @@ export default function TabPage() {
       toast.success('Expense added')
       refreshNavBadges()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not add expense')
+      toastUserError(e, "Couldn't add that expense. Try again.")
     } finally {
       setSaving(false)
     }
@@ -224,7 +226,7 @@ export default function TabPage() {
       toast.success('Marked settled')
       refreshNavBadges()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not settle')
+      toastUserError(e, "Couldn't mark that as settled. Try again.")
     }
   }
 
@@ -247,7 +249,7 @@ export default function TabPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {loadingGroups ? (
-              <p className="text-sm text-muted-foreground">Loading groups…</p>
+              <PageLoader label="Loading groups…" variant="inline" />
             ) : groupsList.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Join a group first —{' '}
@@ -283,7 +285,7 @@ export default function TabPage() {
         </Card>
 
         {!groupId ? null : loadingTab && !overview ? (
-          <p className="text-sm text-muted-foreground">Loading tab…</p>
+          <PageLoader label="Loading shared tab…" variant="inline" />
         ) : overview ? (
           <>
             <Card

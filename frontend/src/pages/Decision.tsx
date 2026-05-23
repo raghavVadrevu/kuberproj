@@ -15,6 +15,7 @@ import {
 import { formatDistanceToNow } from 'date-fns'
 import { toast } from 'sonner'
 
+import { PageLoader } from '@/components/ui/page-loader'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -45,6 +46,7 @@ import {
   type GroupDto,
   type PollDto,
 } from '@/lib/api'
+import { toastUserError } from '@/lib/user-errors'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 const SLOTS = ['Morning', 'Afternoon', 'Evening', 'Night'] as const
@@ -102,7 +104,7 @@ export default function DecisionPage() {
         localStorage.setItem(ACTIVE_GROUP_STORAGE_KEY, pick)
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load groups')
+      toastUserError(e, "Couldn't load your groups. Try again.")
       setGroupId(null)
     } finally {
       setLoadingGroups(false)
@@ -128,7 +130,7 @@ export default function DecisionPage() {
       const data = await apiJson<PollDto[]>(`/groups/${groupId}/polls`)
       setPolls(data)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load polls')
+      toastUserError(e, "Couldn't load polls. Try again.")
     } finally {
       setLoadingPolls(false)
     }
@@ -147,7 +149,7 @@ export default function DecisionPage() {
       setAvailability(data)
       setSelectedSlots(new Set(data.mine))
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load availability')
+      toastUserError(e, "Couldn't load everyone's availability. Try again.")
     } finally {
       setLoadingAvail(false)
     }
@@ -204,7 +206,7 @@ export default function DecisionPage() {
       toast.success('Vote saved')
       refreshNavBadges()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Vote failed')
+      toastUserError(e, "Couldn't save your vote. Try again.")
     } finally {
       setVotingId(null)
     }
@@ -228,7 +230,7 @@ export default function DecisionPage() {
       setSelectedSlots(new Set(data.mine))
       toast.success('Availability saved')
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Save failed')
+      toastUserError(e, "Couldn't save your availability. Try again.")
     } finally {
       setSavingAvail(false)
     }
@@ -265,7 +267,7 @@ export default function DecisionPage() {
       setExpandedPollId(created.id)
       toast.success('Poll created')
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Create failed')
+      toastUserError(e, "Couldn't create that poll. Try again.")
     }
   }
 
@@ -295,7 +297,7 @@ export default function DecisionPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           {loadingGroups ? (
-            <p className="text-sm text-muted-foreground">Loading groups…</p>
+            <PageLoader label="Loading groups…" variant="inline" />
           ) : groupsList.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               You are not in any group yet.{' '}
@@ -345,7 +347,7 @@ export default function DecisionPage() {
         <TabsContent value="polls" className="mt-0 flex-1">
           <div className="space-y-4 py-4">
             {loadingPolls ? (
-              <p className="text-sm text-muted-foreground">Loading polls…</p>
+              <PageLoader label="Loading polls…" variant="inline" />
             ) : polls.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No polls yet. Tap + to create one.
@@ -504,7 +506,7 @@ export default function DecisionPage() {
               </CardHeader>
               <CardContent>
                 {loadingAvail || !availability ? (
-                  <p className="text-sm text-muted-foreground">Loading heatmap…</p>
+                  <PageLoader label="Loading availability…" variant="inline" />
                 ) : (
                   <>
                     <div className="overflow-x-auto">

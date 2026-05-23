@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { Send, Sparkles, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { PageLoader } from '@/components/ui/page-loader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -25,6 +26,7 @@ import {
   type GroupMemberDto,
   type UserProfileDto,
 } from '@/lib/api'
+import { formatChatError, toastUserError } from '@/lib/user-errors'
 
 const TYPING_STALE_MS = 3500
 const TYPING_SEND_DEBOUNCE_MS = 400
@@ -237,7 +239,7 @@ export default function ConciergePage() {
       setMembers(detail.members)
       setMessages(history)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load group chat')
+      toastUserError(e, "Couldn't load group chat. Try again.")
       setMessages([])
     } finally {
       setLoading(false)
@@ -317,12 +319,12 @@ export default function ConciergePage() {
           if (cancelled) return
           // Ignore stale server responses when typing events are unsupported
           if (detail.includes("message type")) return
-          toast.error(detail)
+          toast.error(formatChatError(detail))
         },
       })
       .catch(() => {
         if (!cancelled) {
-          toast.error('Could not connect to group chat')
+          toast.error("Can't connect to group chat right now. Try again in a moment.")
         }
       })
 
@@ -374,7 +376,7 @@ export default function ConciergePage() {
     try {
       await chatClientRef.current?.sendMessage(text)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to send message')
+      toastUserError(e, "Couldn't send that message. Try again.")
       setInputValue(text)
     } finally {
       setSending(false)
@@ -421,11 +423,7 @@ export default function ConciergePage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[calc(100vh-8rem)] text-muted-foreground text-sm">
-        Loading chat…
-      </div>
-    )
+    return <PageLoader label="Loading chat…" className="min-h-[calc(100vh-8rem)]" />
   }
 
   if (!groupId) {

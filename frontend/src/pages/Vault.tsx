@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { PageLoader } from '@/components/ui/page-loader'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -54,6 +55,7 @@ import {
   type GroupDto,
   type VaultItemDto,
 } from '@/lib/api'
+import { toastUserError } from '@/lib/user-errors'
 
 type CardType = 'code' | 'location' | 'link'
 
@@ -110,7 +112,7 @@ export default function VaultPage() {
         localStorage.setItem(ACTIVE_GROUP_STORAGE_KEY, pick)
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load groups')
+      toastUserError(e, "Couldn't load your groups. Try again.")
       setGroupId(null)
     } finally {
       setLoadingGroups(false)
@@ -128,7 +130,7 @@ export default function VaultPage() {
       const data = await apiJson<VaultItemDto[]>(`/groups/${groupId}/vault`)
       setItems(data)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load vault')
+      toastUserError(e, "Couldn't load the vault. Try again.")
       setItems([])
     } finally {
       setLoadingVault(false)
@@ -218,7 +220,7 @@ export default function VaultPage() {
       markVaultSeen()
       refreshNavBadges()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not save')
+      toastUserError(e, "Couldn't save that item. Try again.")
     } finally {
       setSaving(false)
     }
@@ -234,7 +236,7 @@ export default function VaultPage() {
       markVaultSeen()
       refreshNavBadges()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not delete')
+      toastUserError(e, "Couldn't delete that item. Try again.")
     }
   }
 
@@ -244,7 +246,7 @@ export default function VaultPage() {
       setCopiedId(id)
       setTimeout(() => setCopiedId(null), 2000)
     } catch {
-      toast.error('Could not copy')
+      toast.error("Couldn't copy to clipboard. Try selecting and copying manually.")
     }
   }
 
@@ -313,7 +315,7 @@ export default function VaultPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {loadingGroups ? (
-              <p className="text-sm text-muted-foreground">Loading groups…</p>
+              <PageLoader label="Loading groups…" variant="inline" />
             ) : groupsList.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Join a group first —{' '}
@@ -374,7 +376,7 @@ export default function VaultPage() {
         </div>
 
         {!groupId ? null : loadingVault && items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Loading vault…</p>
+          <PageLoader label="Loading vault…" variant="inline" />
         ) : (
           <div className="pt-4">
             <div className="columns-1 gap-4 sm:columns-2 lg:columns-3">

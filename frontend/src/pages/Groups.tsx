@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Plus, Trash2, UserPlus, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { PageLoader } from '@/components/ui/page-loader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -21,6 +22,7 @@ import {
   type GroupDto,
   type UserProfileDto,
 } from '@/lib/api'
+import { toastUserError } from '@/lib/user-errors'
 
 export default function GroupsPage() {
   const [meSub, setMeSub] = useState<string | null>(null)
@@ -50,7 +52,7 @@ export default function GroupsPage() {
         setDetail(null)
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load groups')
+      toastUserError(e, "Couldn't load your groups. Try again.")
     } finally {
       setLoading(false)
     }
@@ -66,7 +68,7 @@ export default function GroupsPage() {
       const d = await apiJson<GroupDetailDto>(`/groups/${id}`)
       setDetail(d)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load group')
+      toastUserError(e, "Couldn't open that group. Try again.")
     }
   }
 
@@ -89,7 +91,7 @@ export default function GroupsPage() {
       setDetail(g)
       void loadGroups()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Create failed')
+      toastUserError(e, "Couldn't create that group. Try again.")
     }
   }
 
@@ -105,7 +107,7 @@ export default function GroupsPage() {
       setDetail(null)
       void loadGroups()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Delete failed')
+      toastUserError(e, "Couldn't delete that group. Try again.")
     }
   }
 
@@ -126,7 +128,7 @@ export default function GroupsPage() {
       toast.success('Member added')
       void loadGroups()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Add failed')
+      toastUserError(e, "Couldn't add that member. Try again.")
     }
   }
 
@@ -140,7 +142,7 @@ export default function GroupsPage() {
       void openGroup(detail.id)
       void loadGroups()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Remove failed')
+      toastUserError(e, "Couldn't remove that member. Try again.")
     }
   }
 
@@ -187,7 +189,7 @@ export default function GroupsPage() {
         </DialogContent>
       </Dialog>
 
-      {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+      {loading ? <PageLoader label="Loading groups…" variant="inline" /> : null}
 
       <div className="space-y-3">
         {groups.length === 0 && !loading ? (

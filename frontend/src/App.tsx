@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom'
+import { ConnectivityProvider } from '@/contexts/ConnectivityContext'
 import RequireAuth from './components/auth/RequireAuth'
 import Layout from './components/layout/Layout'
 import PulsePage from './pages/Pulse'
@@ -15,6 +16,7 @@ import SignupPage from './pages/Signup'
 
 function App() {
   return (
+    <ConnectivityProvider>
     <Routes>
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/login" element={<LoginPage />} />
@@ -38,6 +40,7 @@ function App() {
         <Route path="groups" element={<GroupsPage />} />
       </Route>
     </Routes>
+    </ConnectivityProvider>
   )
 }
 

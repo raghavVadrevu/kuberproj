@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { isCognitoConfigured } from '@/lib/cognito-config'
 import { summaryFromIdToken, type CognitoProfileSummary } from '@/lib/cognito-user'
+import { PageLoader } from '@/components/ui/page-loader'
 import { apiJson } from '@/lib/api'
 
 function profileInitials(name: string): string {
@@ -107,11 +108,7 @@ export default function ProfilePage() {
   }
 
   if (sessionLoading) {
-    return (
-      <div className="py-4 lg:py-6">
-        <p className="text-sm text-muted-foreground">Loading your profile…</p>
-      </div>
-    )
+    return <PageLoader label="Loading your profile…" />
   }
 
   if (!isCognitoConfigured() || !session) {

@@ -10,7 +10,14 @@ export class ApiError extends Error {
   }
 }
 
-function apiBase(): string {
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NetworkError'
+  }
+}
+
+export function getApiBase(): string {
   const raw = import.meta.env.VITE_API_BASE as string | undefined
   const trimmed = raw?.trim()
   if (!trimmed) return '/api'
@@ -18,20 +25,39 @@ function apiBase(): string {
 }
 
 export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const session = await fetchAuthSession()
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    throw new NetworkError("You're offline. Check your connection and try again.")
+  }
+
+  let session
+  try {
+    session = await fetchAuthSession()
+  } catch {
+    throw new NetworkError("Can't sign you in right now. Check your connection and try again.")
+  }
+
   const token = session.tokens?.idToken?.toString()
   if (!token) {
     throw new ApiError(401, 'Not signed in')
   }
+
   const p = path.startsWith('/') ? path : `/${path}`
-  const url = `${apiBase()}${p}`
+  const url = `${getApiBase()}${p}`
   const headers = new Headers(init?.headers)
   headers.set('Authorization', `Bearer ${token}`)
   if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
-  const res = await fetch(url, { ...init, headers })
-  const text = await res.text()
+
+  let res: Response
+  let text: string
+  try {
+    res = await fetch(url, { ...init, headers })
+    text = await res.text()
+  } catch {
+    throw new NetworkError("Can't reach Huddle right now. Check your internet and try again.")
+  }
+
   if (!res.ok) {
     let msg = text
     try {

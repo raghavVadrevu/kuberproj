@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Check, Mail, Send, UserMinus, X } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { PageLoader } from '@/components/ui/page-loader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,6 +16,7 @@ import {
   type FriendRequestCreateResultDto,
   type UserProfileDto,
 } from '@/lib/api'
+import { toastUserError } from '@/lib/user-errors'
 
 export default function FriendsPage() {
   const [friends, setFriends] = useState<UserProfileDto[]>([])
@@ -37,7 +39,7 @@ export default function FriendsPage() {
       setOutgoing(out)
       refreshNavBadges()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load friends')
+      toastUserError(e, "Couldn't load your friends. Pull to refresh or try again.")
     } finally {
       setLoading(false)
     }
@@ -67,7 +69,7 @@ export default function FriendsPage() {
       setEmail('')
       void refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Request failed')
+      toastUserError(e, "Couldn't send that friend request. Try again.")
     } finally {
       setBusy(false)
     }
@@ -79,7 +81,7 @@ export default function FriendsPage() {
       toast.success('Request accepted')
       void refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed')
+      toastUserError(e, "That didn't work. Try again.")
     }
   }
 
@@ -89,7 +91,7 @@ export default function FriendsPage() {
       toast.success('Request declined')
       void refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed')
+      toastUserError(e, "That didn't work. Try again.")
     }
   }
 
@@ -99,7 +101,7 @@ export default function FriendsPage() {
       toast.success('Request cancelled')
       void refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed')
+      toastUserError(e, "That didn't work. Try again.")
     }
   }
 
@@ -109,7 +111,7 @@ export default function FriendsPage() {
       toast.success('Removed from friends')
       void refresh()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed')
+      toastUserError(e, "That didn't work. Try again.")
     }
   }
 
@@ -151,9 +153,7 @@ export default function FriendsPage() {
         </CardContent>
       </Card>
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : null}
+      {loading ? <PageLoader label="Loading friends…" variant="inline" /> : null}
 
       <Card>
         <CardHeader className="pb-2">
