@@ -42,7 +42,7 @@ def _llm_model() -> str:
         return os.environ.get("LLM_LOCAL_MODEL", "ollama/phi3")
     return os.environ.get(
         "LLM_PROD_MODEL",
-        "bedrock/anthropic.claude-3-haiku-20240307-v1:0",
+        "bedrock/deepseek.v3.2",
     )
 
 
