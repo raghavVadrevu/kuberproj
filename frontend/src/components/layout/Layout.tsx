@@ -4,7 +4,6 @@ import { Toaster } from 'sonner'
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
-  Sparkles,
   Home,
   BarChart3,
   Wallet,
@@ -47,7 +46,7 @@ const mainNavItems: NavItem[] = [
 const moreNavItems: NavItem[] = [
   { path: '/friends', icon: UserPlus, label: 'Friends' },
   { path: '/groups', icon: Users, label: 'Groups' },
-  { path: '/ai', icon: MessageSquare, label: 'AI' },
+  { path: '/ai', icon: MessageSquare, label: 'Chat' },
 ]
 
 function routeIsActive(path: string, pathname: string): boolean {
@@ -153,14 +152,16 @@ function LayoutShell() {
           </div>
           <NavLink
             to="/ai"
+            aria-label="Group chat"
             className={cn(
-              'w-9 h-9 rounded-lg flex items-center justify-center transition-all duration-200',
+              'relative w-9 h-9 rounded-lg flex items-center justify-center transition-all duration-200',
               location.pathname === '/ai' || location.pathname === '/concierge'
                 ? 'bg-primary/20 text-primary'
                 : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
             )}
           >
-            <Sparkles className="w-5 h-5" />
+            <MessageSquare className="w-5 h-5" />
+            <NavBadgeDot show={badgeFor('/ai')} className="top-0.5 right-0.5" />
           </NavLink>
         </header>
 

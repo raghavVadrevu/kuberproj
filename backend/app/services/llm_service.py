@@ -34,9 +34,14 @@ User messages are prefixed with "[Message from Name]:" so you know who is speaki
 8. CHAT LENGTH: Keep responses incredibly concise (1-2 sentences max unless summarizing data).
 9. BANTER: If friends joke around, insult each other, or say "STFU," play along with witty banter.
 10. SUMMARIES: When asked to summarize plans, debts, or schedules, use clean, punchy bullet points.
+11. GROUP SNAPSHOT: When a GROUP ACTIVITY block is attached, use it for polls, expenses, and balances. Do not recite it unprompted — only when relevant to the question.
 
 Read the room, step in seamlessly, drop your message, and step out.
 """
+
+GROUP_ACTIVITY_PREFIX = (
+    "\n\n--- GROUP ACTIVITY (live app data; use when helpful, never invent beyond this) ---\n"
+)
 
 PULSE_TLDR_SYSTEM_PROMPT = f"""
 You are Huddle, the witty, highly capable, and slightly sarcastic digital assistant for this friend group's app.
@@ -105,9 +110,16 @@ def _completion_kwargs(messages: list[dict[str, str]], *, stream: bool) -> dict:
     return kwargs
 
 
-def build_llm_messages(history: list[ChatMessageOut]) -> list[dict[str, str]]:
+def build_llm_messages(
+    history: list[ChatMessageOut],
+    *,
+    group_activity: str | None = None,
+) -> list[dict[str, str]]:
     """Turn the last N chat messages into LiteLLM message roles."""
-    messages: list[dict[str, str]] = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+    system = CHAT_SYSTEM_PROMPT
+    if group_activity and group_activity.strip():
+        system = f"{system}{GROUP_ACTIVITY_PREFIX}{group_activity.strip()}"
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
 
     for msg in history:
         if msg.is_ai or msg.sender_sub == AI_SENDER_SUB:
@@ -148,13 +160,15 @@ async def generate_pulse_tldr(context: str) -> str:
 
 async def stream_chat_response(
     history: list[ChatMessageOut] | None = None,
+    *,
+    group_activity: str | None = None,
 ) -> AsyncIterator[str]:
     """
     Stream LLM tokens via LiteLLM.
     Local: Ollama in Docker. Production: AWS Bedrock (same code path).
     """
     context = (history or [])[-CHAT_CONTEXT_LIMIT:]
-    messages = build_llm_messages(context)
+    messages = build_llm_messages(context, group_activity=group_activity)
     model = _llm_model()
     api_base = _ollama_api_base()
 

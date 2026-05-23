@@ -1,4 +1,5 @@
 import type {
+  ChatMessageDto,
   FriendRequestDto,
   PollDto,
   TabOverviewDto,
@@ -12,6 +13,7 @@ export type NavAckSnapshot = {
   decision?: string
   tab?: string
   vault?: string
+  chat?: string
 }
 
 function groupAckKey(groupId: string): string {
@@ -74,6 +76,23 @@ export function friendsFingerprint(incoming: FriendRequestDto[]): string {
   return JSON.stringify(incoming.map((r) => r.id).sort())
 }
 
+/** Unread chat = new messages from others (not the viewer, not @huddle bot lines). */
+export function chatFingerprint(
+  messages: ChatMessageDto[],
+  viewerSub: string,
+): string {
+  const fromOthers = messages.filter(
+    (m) => m.sender_sub !== viewerSub && !m.is_ai,
+  )
+  if (fromOthers.length === 0) return ''
+  const last = fromOthers[fromOthers.length - 1]!
+  return JSON.stringify({
+    count: fromOthers.length,
+    id: last.id,
+    at: last.created_at,
+  })
+}
+
 export function getFriendsAck(): string {
   return localStorage.getItem(FRIENDS_ACK_KEY) ?? ''
 }
@@ -90,6 +109,7 @@ export function markNavTabsSeen(
     decision?: string
     tab?: string
     vault?: string
+    chat?: string
   },
 ): void {
   saveGroupAck(groupId, paths)

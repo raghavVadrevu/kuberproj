@@ -26,6 +26,7 @@ import {
   type GroupMemberDto,
   type UserProfileDto,
 } from '@/lib/api'
+import { refreshNavBadges } from '@/contexts/NavBadgesContext'
 import { formatChatError, toastUserError } from '@/lib/user-errors'
 
 const TYPING_STALE_MS = 3500
@@ -292,7 +293,12 @@ export default function ConciergePage() {
     void client
       .connect(groupId, {
         onMessage: (msg) => {
-          if (!cancelled) upsertMessage(msg)
+          if (!cancelled) {
+            upsertMessage(msg)
+            if (msg.sender_sub !== meSub && !msg.is_ai) {
+              refreshNavBadges()
+            }
+          }
         },
         onAiToken: (streamId, chunk) => {
           if (!cancelled) appendAiToken(streamId, chunk)
@@ -301,6 +307,7 @@ export default function ConciergePage() {
           if (!cancelled) {
             clearAiStream(streamId)
             upsertMessage(msg)
+            refreshNavBadges()
           }
         },
         onTyping: (userSub, active) => {

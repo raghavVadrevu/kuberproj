@@ -14,6 +14,7 @@ import {
   ACTIVE_GROUP_STORAGE_KEY,
   apiJson,
   resolveActiveGroupId,
+  type ChatMessageDto,
   type FriendRequestDto,
   type GroupDto,
   type PollDto,
@@ -22,6 +23,7 @@ import {
 } from '@/lib/api'
 import { GroupSyncClient } from '@/lib/group-sync'
 import {
+  chatFingerprint,
   friendsFingerprint,
   getFriendsAck,
   isUnseenSinceAck,
@@ -34,7 +36,14 @@ import {
   vaultFingerprint,
 } from '@/lib/nav-ack'
 
-export type NavBadgePath = '/' | '/decision' | '/tab' | '/vault' | '/friends' | '/groups'
+export type NavBadgePath =
+  | '/'
+  | '/decision'
+  | '/tab'
+  | '/vault'
+  | '/friends'
+  | '/groups'
+  | '/ai'
 
 export type NavBadges = Record<NavBadgePath, boolean> & { more: boolean }
 
@@ -45,6 +54,7 @@ const defaultBadges: NavBadges = {
   '/vault': false,
   '/friends': false,
   '/groups': false,
+  '/ai': false,
   more: false,
 }
 
@@ -96,22 +106,28 @@ export function NavBadgesProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const [polls, tab, vaultItems] = await Promise.all([
+      const [polls, tab, vaultItems, chatMessages] = await Promise.all([
         groupId ? apiJson<PollDto[]>(`/groups/${groupId}/polls`) : Promise.resolve([]),
         groupId ? apiJson<TabOverviewDto>(`/groups/${groupId}/tab`) : Promise.resolve(null),
         groupId ? apiJson<VaultItemDto[]>(`/groups/${groupId}/vault`) : Promise.resolve([]),
+        groupId
+          ? apiJson<ChatMessageDto[]>(`/groups/${groupId}/chat/messages?limit=100`)
+          : Promise.resolve([]),
       ])
 
+      const viewerSub = tab?.viewer_sub ?? ''
       const fpPolls = pollsFingerprint(polls)
       const fpTab = tabFingerprint(tab)
       const fpPulse = pulseFingerprint(polls, tab)
       const fpVault = vaultFingerprint(vaultItems)
+      const fpChat = chatFingerprint(chatMessages, viewerSub)
       const fpFriends = friendsFingerprint(incoming)
 
       const onPulse = routeIsActive('/', pathname)
       const onDecide = routeIsActive('/decision', pathname)
       const onTab = routeIsActive('/tab', pathname)
       const onVault = routeIsActive('/vault', pathname)
+      const onChat = routeIsActive('/ai', pathname)
       const onFriends = routeIsActive('/friends', pathname)
       const onMore = moreMenuIsActive(pathname)
 
@@ -121,11 +137,13 @@ export function NavBadgesProvider({ children }: { children: ReactNode }) {
           decision?: string
           tab?: string
           vault?: string
+          chat?: string
         } = {}
         if (onPulse) seen.pulse = fpPulse
         if (onDecide) seen.decision = fpPolls
         if (onTab) seen.tab = fpTab
         if (onVault) seen.vault = fpVault
+        if (onChat) seen.chat = fpChat
         if (Object.keys(seen).length > 0) {
           markNavTabsSeen(groupId, seen)
         }
@@ -160,9 +178,16 @@ export function NavBadgesProvider({ children }: { children: ReactNode }) {
           !onFriends &&
           isUnseenSinceAck(ackFriends || undefined, fpFriends, incoming.length > 0),
         '/groups': false,
+        '/ai':
+          !!groupId &&
+          !onChat &&
+          isUnseenSinceAck(ack.chat, fpChat, fpChat !== ''),
         more:
           !onMore &&
-          isUnseenSinceAck(ackFriends || undefined, fpFriends, incoming.length > 0),
+          (isUnseenSinceAck(ackFriends || undefined, fpFriends, incoming.length > 0) ||
+            (!!groupId &&
+              !onChat &&
+              isUnseenSinceAck(ack.chat, fpChat, fpChat !== ''))),
       })
     } catch {
       setBadges(defaultBadges)

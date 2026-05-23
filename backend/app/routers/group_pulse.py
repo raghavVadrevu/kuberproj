@@ -9,11 +9,9 @@ from app.db import get_connection
 from app.poll_queries import build_poll_rows
 from app.routers.group_tab import _build_overview
 from app.schemas import PulseTldrOut
+from app.services.group_context import build_group_activity_context
 from app.services.llm_service import generate_pulse_tldr
-from app.services.pulse_service import (
-    fallback_pulse_tldr,
-    format_pulse_context,
-)
+from app.services.pulse_service import fallback_pulse_tldr
 
 router = APIRouter(prefix="/api/groups/{group_id}", tags=["group-pulse"])
 
@@ -32,23 +30,10 @@ async def get_pulse_tldr(
         if not group_row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
 
-        profile = conn.execute(
-            "SELECT display_name FROM user_profiles WHERE sub = %s",
-            (user_sub,),
-        ).fetchone()
-
+        group_name = str(group_row["name"])
         polls = build_poll_rows(conn, user_sub, group_id)
         tab = _build_overview(conn, group_id, user_sub)
-
-    group_name = str(group_row["name"])
-    viewer_name = profile["display_name"] if profile else None
-    context = format_pulse_context(
-        group_name=group_name,
-        member_count=len(tab.members),
-        polls=polls,
-        tab=tab,
-        viewer_name=viewer_name,
-    )
+        context = build_group_activity_context(conn, group_id, user_sub)
 
     try:
         tldr = await generate_pulse_tldr(context)

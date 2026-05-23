@@ -9,10 +9,15 @@ from app.access import assert_group_member
 from app.auth import decode_cognito_id_token, get_current_user_sub
 from app.chat_manager import chat_manager
 from app.chat_queries import AI_SENDER_SUB, fetch_chat_messages, insert_chat_message
-from app.services.llm_service import CHAT_CONTEXT_LIMIT
 from app.db import get_connection
+from app.group_events import notify_group_activity
 from app.schemas import ChatMessageOut
-from app.services.llm_service import message_mentions_ai, stream_chat_response
+from app.services.group_context import build_group_activity_context
+from app.services.llm_service import (
+    CHAT_CONTEXT_LIMIT,
+    message_mentions_ai,
+    stream_chat_response,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +41,7 @@ def list_chat_messages(
 async def _stream_ai_to_group(
     group_id: str,
     group_uuid: UUID,
+    viewer_sub: str,
 ) -> None:
     stream_id = str(uuid4())
     full_content: list[str] = []
@@ -44,8 +50,12 @@ async def _stream_ai_to_group(
         history = fetch_chat_messages(
             conn, group_uuid, limit=CHAT_CONTEXT_LIMIT,
         )
+        group_activity = build_group_activity_context(conn, group_uuid, viewer_sub)
 
-    async for chunk in stream_chat_response(history=history):
+    async for chunk in stream_chat_response(
+        history=history,
+        group_activity=group_activity,
+    ):
         full_content.append(chunk)
         await chat_manager.broadcast_json(
             group_id,
@@ -69,6 +79,7 @@ async def _stream_ai_to_group(
             "message": msg.model_dump(mode="json"),
         },
     )
+    await notify_group_activity(group_id, "chat")
 
 
 @router.websocket("/api/ws/groups/{group_id}/chat")
@@ -158,9 +169,10 @@ async def group_chat_websocket(
                     "message": msg.model_dump(mode="json"),
                 },
             )
+            await notify_group_activity(gid, "chat")
 
             if message_mentions_ai(content):
-                await _stream_ai_to_group(gid, group_id)
+                await _stream_ai_to_group(gid, group_id, user_sub)
     except WebSocketDisconnect:
         logger.debug("group chat websocket disconnected group=%s", gid)
     except Exception:
