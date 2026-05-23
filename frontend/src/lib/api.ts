@@ -154,6 +154,11 @@ export type TabOverviewDto = {
   members: TabMemberLiteDto[]
 }
 
+export type PulseTldrDto = {
+  tldr: string
+  generated_by: 'llm' | 'fallback'
+}
+
 export type VaultItemDto = {
   id: string
   group_id: string

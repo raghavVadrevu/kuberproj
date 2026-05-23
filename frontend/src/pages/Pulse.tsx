@@ -26,6 +26,7 @@ import {
   type GroupDto,
   type PollDto,
   type TabMemberLiteDto,
+  type PulseTldrDto,
   type TabOverviewDto,
 } from '@/lib/api'
 
@@ -69,6 +70,8 @@ export default function PulsePage() {
   const [groupId, setGroupId] = useState<string | null>(null)
   const [polls, setPolls] = useState<PollDto[]>([])
   const [tabOverview, setTabOverview] = useState<TabOverviewDto | null>(null)
+  const [tldr, setTldr] = useState<string | null>(null)
+  const [tldrLoading, setTldrLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,10 +85,13 @@ export default function PulsePage() {
       setGroupId(null)
       setPolls([])
       setTabOverview(null)
+      setTldr(null)
       return
     }
     setSignedIn(true)
     setLoading(true)
+    setTldrLoading(true)
+    setTldr(null)
     try {
       const groups = await apiJson<GroupDto[]>('/groups')
       setGroupsList(groups)
@@ -96,20 +102,25 @@ export default function PulsePage() {
       if (!gid) {
         setPolls([])
         setTabOverview(null)
+        setTldr(null)
         return
       }
-      const [pollData, tabData] = await Promise.all([
+      const [pollData, tabData, tldrData] = await Promise.all([
         apiJson<PollDto[]>(`/groups/${gid}/polls`),
         apiJson<TabOverviewDto>(`/groups/${gid}/tab`),
+        apiJson<PulseTldrDto>(`/groups/${gid}/pulse/tldr`),
       ])
       setPolls(pollData.filter((p) => p.status === 'active'))
       setTabOverview(tabData)
+      setTldr(tldrData.tldr)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load pulse')
       setPolls([])
       setTabOverview(null)
+      setTldr(null)
     } finally {
       setLoading(false)
+      setTldrLoading(false)
     }
   }, [])
 
@@ -121,11 +132,6 @@ export default function PulsePage() {
 
   const activePolls = polls
 
-  const pollsYouHaventVoted = useMemo(
-    () => activePolls.filter((p) => !p.my_ranking?.length).length,
-    [activePolls],
-  )
-
   const recentExpenses = useMemo(() => {
     if (!tabOverview) return []
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
@@ -133,16 +139,6 @@ export default function PulsePage() {
       .filter((e) => new Date(e.created_at).getTime() >= cutoff)
       .slice(0, 6)
   }, [tabOverview])
-
-  const unsettledExpenses = useMemo(
-    () => tabOverview?.expenses.filter((e) => !e.settled) ?? [],
-    [tabOverview],
-  )
-
-  const unsettledTotal = useMemo(
-    () => unsettledExpenses.reduce((s, e) => s + e.amount, 0),
-    [unsettledExpenses],
-  )
 
   const synthesis = useMemo(() => {
     if (!signedIn) {
@@ -154,34 +150,11 @@ export default function PulsePage() {
     if (error) {
       return `Could not refresh: ${error}. Try again from Profile after checking the API.`
     }
-    const parts: string[] = []
-    if (activePolls.length === 0) {
-      parts.push('No active polls right now.')
-    } else {
-      parts.push(
-        `${activePolls.length} active poll${activePolls.length === 1 ? '' : 's'}` +
-          (pollsYouHaventVoted > 0
-            ? ` — you still have ${pollsYouHaventVoted} to vote on.`
-            : ' — you are caught up on voting.'),
-      )
+    if (tldrLoading) {
+      return null
     }
-    if (unsettledExpenses.length === 0) {
-      parts.push('No unsettled expenses in this group.')
-    } else {
-      parts.push(
-        `${unsettledExpenses.length} unsettled expense${unsettledExpenses.length === 1 ? '' : 's'} totaling about $${unsettledTotal.toFixed(2)}.`,
-      )
-    }
-    return parts.join(' ')
-  }, [
-    signedIn,
-    groupId,
-    error,
-    activePolls.length,
-    pollsYouHaventVoted,
-    unsettledExpenses.length,
-    unsettledTotal,
-  ])
+    return tldr
+  }, [signedIn, groupId, error, tldr, tldrLoading])
 
   const groupLabel = useMemo(() => {
     if (!groupId) return null
@@ -208,7 +181,12 @@ export default function PulsePage() {
         </CardHeader>
         <CardContent className="relative">
           <p className="leading-relaxed text-foreground">
-            <span className="font-semibold text-primary">TL;DR:</span> {synthesis}
+            <span className="font-semibold text-primary">TL;DR:</span>{' '}
+            {synthesis === null ? (
+              <span className="text-muted-foreground animate-pulse">huddle is catching up…</span>
+            ) : (
+              synthesis
+            )}
           </p>
           {members.length > 0 ? (
             <div className="mt-4 flex items-center gap-2">

@@ -154,6 +154,11 @@ class TabOverviewOut(BaseModel):
     members: list[TabMemberLite]
 
 
+class PulseTldrOut(BaseModel):
+    tldr: str
+    generated_by: str = "llm"
+
+
 class VaultItemCreate(BaseModel):
     item_type: str = Field(min_length=1, max_length=20)
     title: str = Field(min_length=1, max_length=500)

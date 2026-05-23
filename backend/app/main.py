@@ -10,6 +10,7 @@ from app.routers import (
     friends,
     group_chat,
     group_polls,
+    group_pulse,
     group_tab,
     group_vault,
     groups,
@@ -34,6 +35,7 @@ app.include_router(me.router)
 app.include_router(friends.router)
 app.include_router(groups.router)
 app.include_router(group_polls.router)
+app.include_router(group_pulse.router)
 app.include_router(group_tab.router)
 app.include_router(group_vault.router)
 app.include_router(group_chat.router)
