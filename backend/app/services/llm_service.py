@@ -47,6 +47,7 @@ You are writing the Pulse TL;DR — a 1-3 sentence snapshot on the home screen a
 8. PULSE FORMAT: Plain prose only. No "TL;DR:" prefix. No markdown. No bullet lists unless 2+ urgent items truly need it.
 9. PULSE LENGTH: 1-3 short sentences max. Lead with what needs action, then the rest.
 10. USE THE DATA: Only state facts from the context block. Do not invent plans, amounts, or votes.
+11. CURRENCY: All money is in Indian rupees. Use ₹ (e.g. ₹1,250.00). Never use $ or USD.
 
 Read the room, drop the snapshot, step out.
 """

@@ -3,9 +3,10 @@ from collections import defaultdict
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.access import assert_group_member
+from app.group_events import notify_group_activity
 from app.auth import get_current_user_sub
 from app.db import get_connection
 from app.poll_queries import build_poll_rows
@@ -39,6 +40,7 @@ def create_poll(
     group_id: UUID,
     body: PollCreate,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
 ) -> PollOut:
     labels = [o.strip() for o in body.options if o.strip()]
     if len(labels) < 2:
@@ -70,6 +72,7 @@ def create_poll(
         rows = build_poll_rows(conn, user_sub, group_id, [poll_id])
         if not rows:
             raise HTTPException(status_code=500, detail="Failed to load created poll")
+        background_tasks.add_task(notify_group_activity, str(group_id), "polls")
         return rows[0]
 
 
@@ -79,6 +82,7 @@ def submit_vote(
     poll_id: UUID,
     body: VoteIn,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
 ) -> PollOut:
     with get_connection() as conn:
         assert_group_member(conn, group_id, user_sub)
@@ -122,6 +126,7 @@ def submit_vote(
         rows = build_poll_rows(conn, user_sub, group_id, [str(poll_id)])
         if not rows:
             raise HTTPException(status_code=404, detail="Poll not found")
+        background_tasks.add_task(notify_group_activity, str(group_id), "polls")
         return rows[0]
 
 
@@ -166,6 +171,7 @@ def put_availability(
     group_id: UUID,
     body: AvailabilityPut,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
 ) -> AvailabilityOut:
     slots = body.slots
     seen: set[tuple[str, str]] = set()
@@ -197,4 +203,5 @@ def put_availability(
             )
         conn.commit()
 
+    background_tasks.add_task(notify_group_activity, str(group_id), "polls")
     return get_availability(group_id, user_sub)

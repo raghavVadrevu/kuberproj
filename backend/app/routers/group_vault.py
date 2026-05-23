@@ -1,9 +1,10 @@
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 
 from app.access import assert_group_member
+from app.group_events import notify_group_activity
 from app.auth import get_current_user_sub
 from app.db import get_connection
 from app.schemas import VaultItemCreate, VaultItemOut, VaultItemUpdate
@@ -84,6 +85,7 @@ def create_vault_item(
     group_id: UUID,
     body: VaultItemCreate,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
 ) -> VaultItemOut:
     _validate_create(body)
     item_type = body.item_type.strip().lower()
@@ -109,6 +111,7 @@ def create_vault_item(
         conn.commit()
     if not row:
         raise HTTPException(status_code=500, detail="Insert failed")
+    background_tasks.add_task(notify_group_activity, gid, "vault")
     return _row_to_out(dict(row))
 
 
@@ -118,6 +121,7 @@ def update_vault_item(
     item_id: UUID,
     body: VaultItemUpdate,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
 ) -> VaultItemOut:
     gid = str(group_id)
     iid = str(item_id)
@@ -178,6 +182,7 @@ def update_vault_item(
         conn.commit()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vault item not found")
+    background_tasks.add_task(notify_group_activity, gid, "vault")
     return _row_to_out(dict(row))
 
 
@@ -186,6 +191,7 @@ def delete_vault_item(
     group_id: UUID,
     item_id: UUID,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
 ) -> Response:
     gid = str(group_id)
     iid = str(item_id)
@@ -201,4 +207,5 @@ def delete_vault_item(
         if cur.rowcount == 0:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vault item not found")
         conn.commit()
+    background_tasks.add_task(notify_group_activity, gid, "vault")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

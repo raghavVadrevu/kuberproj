@@ -47,7 +47,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { refreshNavBadges } from '@/contexts/NavBadgesContext'
-import { markVaultSeen } from '@/lib/vault-last-seen'
 import {
   ACTIVE_GROUP_STORAGE_KEY,
   VAULT_CATEGORIES,
@@ -145,11 +144,6 @@ export default function VaultPage() {
     void loadVault()
   }, [loadVault])
 
-  useEffect(() => {
-    markVaultSeen()
-    refreshNavBadges()
-  }, [])
-
   const openCreate = () => {
     setDialogMode('create')
     setEditingId(null)
@@ -217,7 +211,6 @@ export default function VaultPage() {
       }
       setDialogOpen(false)
       await loadVault()
-      markVaultSeen()
       refreshNavBadges()
     } catch (e) {
       toastUserError(e, "Couldn't save that item. Try again.")
@@ -233,7 +226,6 @@ export default function VaultPage() {
       await apiJson<void>(`/groups/${groupId}/vault/${id}`, { method: 'DELETE' })
       toast.success('Deleted')
       await loadVault()
-      markVaultSeen()
       refreshNavBadges()
     } catch (e) {
       toastUserError(e, "Couldn't delete that item. Try again.")

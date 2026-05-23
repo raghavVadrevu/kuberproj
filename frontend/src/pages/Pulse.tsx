@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { formatRupees } from '@/lib/currency'
 import {
   ACTIVE_GROUP_STORAGE_KEY,
   apiJson,
@@ -410,8 +411,10 @@ export default function PulsePage() {
                         </p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="font-semibold">${tab.amount.toFixed(2)}</p>
-                        <p className="text-xs text-muted-foreground">${tab.share_amount.toFixed(2)}/person</p>
+                        <p className="font-semibold">{formatRupees(tab.amount)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatRupees(tab.share_amount)}/person
+                        </p>
                       </div>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground opacity-50" />
                     </CardContent>

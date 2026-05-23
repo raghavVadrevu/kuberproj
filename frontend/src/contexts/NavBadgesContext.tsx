@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -19,7 +20,19 @@ import {
   type TabOverviewDto,
   type VaultItemDto,
 } from '@/lib/api'
-import { getVaultLastSeenMs, markVaultSeen } from '@/lib/vault-last-seen'
+import { GroupSyncClient } from '@/lib/group-sync'
+import {
+  friendsFingerprint,
+  getFriendsAck,
+  isUnseenSinceAck,
+  loadGroupAck,
+  markFriendsSeen,
+  markNavTabsSeen,
+  pollsFingerprint,
+  pulseFingerprint,
+  tabFingerprint,
+  vaultFingerprint,
+} from '@/lib/nav-ack'
 
 export type NavBadgePath = '/' | '/decision' | '/tab' | '/vault' | '/friends' | '/groups'
 
@@ -52,13 +65,19 @@ function moreMenuIsActive(pathname: string): boolean {
   )
 }
 
-function countPollsNeedingVote(polls: PollDto[]): number {
-  return polls.filter((p) => p.status === 'active' && !p.my_ranking?.length).length
+function tabHasUnsettled(tab: TabOverviewDto | null): boolean {
+  return (tab?.expenses.some((e) => !e.settled) ?? false)
+}
+
+function hasActivePolls(polls: PollDto[]): boolean {
+  return polls.some((p) => p.status === 'active')
 }
 
 export function NavBadgesProvider({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
   const [badges, setBadges] = useState<NavBadges>(defaultBadges)
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const syncClientRef = useRef<GroupSyncClient | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -68,6 +87,8 @@ export function NavBadgesProvider({ children }: { children: ReactNode }) {
       ])
 
       const groupId = resolveActiveGroupId(groups)
+      setActiveGroupId(groupId)
+
       if (groupId) {
         const stored = localStorage.getItem(ACTIVE_GROUP_STORAGE_KEY)
         if (stored !== groupId) {
@@ -81,13 +102,11 @@ export function NavBadgesProvider({ children }: { children: ReactNode }) {
         groupId ? apiJson<VaultItemDto[]>(`/groups/${groupId}/vault`) : Promise.resolve([]),
       ])
 
-      const pollsNeedingVote = countPollsNeedingVote(polls)
-      const unsettledCount = tab?.expenses.filter((e) => !e.settled).length ?? 0
-      const vaultLastSeen = getVaultLastSeenMs()
-      const vaultHasNew = vaultItems.some(
-        (item) => new Date(item.updated_at).getTime() > vaultLastSeen,
-      )
-      const incomingCount = incoming.length
+      const fpPolls = pollsFingerprint(polls)
+      const fpTab = tabFingerprint(tab)
+      const fpPulse = pulseFingerprint(polls, tab)
+      const fpVault = vaultFingerprint(vaultItems)
+      const fpFriends = friendsFingerprint(incoming)
 
       const onPulse = routeIsActive('/', pathname)
       const onDecide = routeIsActive('/decision', pathname)
@@ -96,14 +115,54 @@ export function NavBadgesProvider({ children }: { children: ReactNode }) {
       const onFriends = routeIsActive('/friends', pathname)
       const onMore = moreMenuIsActive(pathname)
 
+      if (groupId) {
+        const seen: {
+          pulse?: string
+          decision?: string
+          tab?: string
+          vault?: string
+        } = {}
+        if (onPulse) seen.pulse = fpPulse
+        if (onDecide) seen.decision = fpPolls
+        if (onTab) seen.tab = fpTab
+        if (onVault) seen.vault = fpVault
+        if (Object.keys(seen).length > 0) {
+          markNavTabsSeen(groupId, seen)
+        }
+      }
+      if (onFriends) {
+        markFriendsSeen(fpFriends)
+      }
+
+      const ack = groupId ? loadGroupAck(groupId) : {}
+      const ackFriends = getFriendsAck()
+
+      const pollActivity = hasActivePolls(polls)
+      const tabActivity = tabHasUnsettled(tab)
+      const pulseActivity = pollActivity || tabActivity
+
       setBadges({
-        '/': !onPulse && (pollsNeedingVote > 0 || unsettledCount > 0),
-        '/decision': !onDecide && pollsNeedingVote > 0,
-        '/tab': !onTab && unsettledCount > 0,
-        '/vault': !onVault && vaultHasNew,
-        '/friends': !onFriends && incomingCount > 0,
+        '/':
+          !!groupId &&
+          !onPulse &&
+          isUnseenSinceAck(ack.pulse, fpPulse, pulseActivity),
+        '/decision':
+          !!groupId &&
+          !onDecide &&
+          isUnseenSinceAck(ack.decision, fpPolls, pollActivity),
+        '/tab':
+          !!groupId && !onTab && isUnseenSinceAck(ack.tab, fpTab, tabActivity),
+        '/vault':
+          !!groupId &&
+          !onVault &&
+          isUnseenSinceAck(ack.vault, fpVault, vaultItems.length > 0),
+        '/friends':
+          !onFriends &&
+          isUnseenSinceAck(ackFriends || undefined, fpFriends, incoming.length > 0),
         '/groups': false,
-        more: !onMore && incomingCount > 0,
+        more:
+          !onMore &&
+          isUnseenSinceAck(ackFriends || undefined, fpFriends, incoming.length > 0),
       })
     } catch {
       setBadges(defaultBadges)
@@ -132,11 +191,32 @@ export function NavBadgesProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   useEffect(() => {
-    if (pathname === '/vault') {
-      markVaultSeen()
-      setBadges((prev) => ({ ...prev, '/vault': false }))
+    if (!activeGroupId) {
+      syncClientRef.current?.disconnect()
+      syncClientRef.current = null
+      return
     }
-  }, [pathname])
+
+    const client = new GroupSyncClient()
+    syncClientRef.current = client
+
+    client
+      .connect(activeGroupId, {
+        onActivity: () => {
+          void refresh()
+        },
+      })
+      .catch(() => {
+        /* focus/interval still refresh */
+      })
+
+    return () => {
+      client.disconnect()
+      if (syncClientRef.current === client) {
+        syncClientRef.current = null
+      }
+    }
+  }, [activeGroupId, refresh])
 
   const value = useMemo(() => badges, [badges])
 

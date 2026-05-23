@@ -2,9 +2,10 @@ from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from app.access import assert_group_member
+from app.group_events import notify_group_activity
 from app.auth import get_current_user_sub
 from app.db import get_connection
 from app.schemas import ExpenseCreate, ExpenseOut, TabBalanceRow, TabMemberLite, TabOverviewOut
@@ -154,6 +155,7 @@ def create_expense(
     group_id: UUID,
     body: ExpenseCreate,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
 ) -> TabOverviewOut:
     cat = body.category.strip().lower() or "other"
     if cat not in TAB_CATEGORIES:
@@ -197,7 +199,9 @@ def create_expense(
             (gid, desc, str(amt), cat, paid_by, participants, user_sub),
         )
         conn.commit()
-        return _build_overview(conn, group_id, user_sub)
+        overview = _build_overview(conn, group_id, user_sub)
+    background_tasks.add_task(notify_group_activity, str(group_id), "tab")
+    return overview
 
 
 @router.post("/tab/expenses/{expense_id}/settle", response_model=TabOverviewOut)
@@ -205,6 +209,7 @@ def settle_expense(
     group_id: UUID,
     expense_id: UUID,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
 ) -> TabOverviewOut:
     with get_connection() as conn:
         assert_group_member(conn, group_id, user_sub)
@@ -227,4 +232,6 @@ def settle_expense(
             (str(expense_id),),
         )
         conn.commit()
-        return _build_overview(conn, group_id, user_sub)
+        overview = _build_overview(conn, group_id, user_sub)
+    background_tasks.add_task(notify_group_activity, str(group_id), "tab")
+    return overview

@@ -3,6 +3,11 @@ from datetime import UTC, datetime, timedelta
 from app.schemas import PollOut, TabOverviewOut
 
 
+def _format_inr(amount: float) -> str:
+    """Indian rupees for Pulse copy (matches frontend Tab)."""
+    return f"₹{amount:,.2f}"
+
+
 def _leading_option(poll: PollOut) -> str | None:
     if not poll.options:
         return None
@@ -16,8 +21,8 @@ def _net_label(net: float) -> str:
     if abs(net) < 0.01:
         return "even on the tab"
     if net > 0:
-        return f"owed ${net:.2f} overall"
-    return f"owing ${abs(net):.2f} overall"
+        return f"owed {_format_inr(net)} overall"
+    return f"owing {_format_inr(abs(net))} overall"
 
 
 def format_pulse_context(
@@ -69,13 +74,13 @@ def format_pulse_context(
     lines.extend(
         [
             "",
-            f"Unsettled expenses: {len(unsettled)} (total ${unsettled_total:.2f})",
+            f"Unsettled expenses: {len(unsettled)} (total {_format_inr(unsettled_total)})",
         ],
     )
     if unsettled:
         for exp in unsettled[:6]:
             payer = exp.paid_by_display_name or exp.paid_by_sub
-            lines.append(f'- "{exp.description}" ${exp.amount:.2f} (paid by {payer})')
+            lines.append(f'- "{exp.description}" {_format_inr(exp.amount)} (paid by {payer})')
     else:
         lines.append("- none")
 
@@ -88,14 +93,13 @@ def format_pulse_context(
     if recent:
         for exp in recent[:5]:
             status = "settled" if exp.settled else "pending"
-            lines.append(f'- "{exp.description}" ${exp.amount:.2f} ({status})')
+            lines.append(f'- "{exp.description}" {_format_inr(exp.amount)} ({status})')
 
     if tab.balances:
         lines.extend(["", "Net balances (unsettled only):"])
         for row in tab.balances[:6]:
             name = row.display_name or row.user_sub
-            sign = "+" if row.net >= 0 else ""
-            lines.append(f"- {name}: {sign}${row.net:.2f}")
+            lines.append(f"- {name}: {_format_inr(row.net)}")
 
     return "\n".join(lines)
 
@@ -130,7 +134,7 @@ def fallback_pulse_tldr(
     else:
         parts.append(
             f"{len(unsettled)} unsettled expense{'s' if len(unsettled) != 1 else ''} "
-            f"totaling about ${total:.2f}.",
+            f"totaling about {_format_inr(total)}.",
         )
 
     return f"{group_name}: " + " ".join(parts)
