@@ -83,6 +83,23 @@ def _migrate(conn: psycopg.Connection) -> None:
             """
         )
 
+    conn.execute(
+        """
+        DELETE FROM availability
+        WHERE day IN ('Mon','Tue','Wed','Thu','Fri','Sat','Sun')
+        """
+    )
+    conn.execute(
+        """
+        DO $$
+        BEGIN
+          ALTER TABLE availability DROP CONSTRAINT IF EXISTS availability_day_check;
+        EXCEPTION
+          WHEN undefined_object THEN NULL;
+        END $$;
+        """
+    )
+
     av = conn.execute(
         """
         SELECT 1 FROM information_schema.columns
@@ -96,7 +113,7 @@ def _migrate(conn: psycopg.Connection) -> None:
             CREATE TABLE availability (
               group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
               user_sub TEXT NOT NULL,
-              day TEXT NOT NULL CHECK (day IN ('Mon','Tue','Wed','Thu','Fri','Sat','Sun')),
+              day TEXT NOT NULL,
               slot TEXT NOT NULL CHECK (slot IN ('Morning','Afternoon','Evening','Night')),
               updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
               PRIMARY KEY (group_id, user_sub, day, slot)
@@ -184,7 +201,7 @@ def init_schema() -> None:
     CREATE TABLE IF NOT EXISTS availability (
       group_id UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
       user_sub TEXT NOT NULL,
-      day TEXT NOT NULL CHECK (day IN ('Mon','Tue','Wed','Thu','Fri','Sat','Sun')),
+      day TEXT NOT NULL,
       slot TEXT NOT NULL CHECK (slot IN ('Morning','Afternoon','Evening','Night')),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       PRIMARY KEY (group_id, user_sub, day, slot)

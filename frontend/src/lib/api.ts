@@ -141,9 +141,17 @@ export type HeatmapCellDto = {
   members: string[]
 }
 
+export type AvailabilityDayDto = {
+  date: string
+  label: string
+}
+
 export type AvailabilityDto = {
   heatmap: Record<string, Record<string, HeatmapCellDto>>
   mine: string[]
+  week_start: string
+  days: AvailabilityDayDto[]
+  resets_note?: string
 }
 
 export type TabMemberLiteDto = {

@@ -46,10 +46,13 @@ import {
   type GroupDto,
   type PollDto,
 } from '@/lib/api'
+import {
+  AVAILABILITY_SLOTS,
+  availabilityQuery,
+  makeSlotKey,
+  parseSlotKey,
+} from '@/lib/availability-week'
 import { toastUserError } from '@/lib/user-errors'
-
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
-const SLOTS = ['Morning', 'Afternoon', 'Evening', 'Night'] as const
 
 function subMonogram(sub: string): string {
   const alnum = sub.replace(/[^a-zA-Z0-9]/g, '')
@@ -145,7 +148,9 @@ export default function DecisionPage() {
     setLoadingAvail(true)
     setAvailability(null)
     try {
-      const data = await apiJson<AvailabilityDto>(`/groups/${groupId}/availability`)
+      const data = await apiJson<AvailabilityDto>(
+        `/groups/${groupId}/availability?${availabilityQuery()}`,
+      )
       setAvailability(data)
       setSelectedSlots(new Set(data.mine))
     } catch (e) {
@@ -165,7 +170,7 @@ export default function DecisionPage() {
   }, [groupId, activeTab, loadAvailability])
 
   const toggleSlot = (day: string, slot: string) => {
-    const key = `${day}-${slot}`
+    const key = makeSlotKey(day, slot)
     setSelectedSlots((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
@@ -216,16 +221,14 @@ export default function DecisionPage() {
     if (!groupId) return
     setSavingAvail(true)
     try {
-      const slots = [...selectedSlots].map((key) => {
-        const i = key.indexOf('-')
-        const day = key.slice(0, i)
-        const slot = key.slice(i + 1)
-        return { day, slot }
-      })
-      const data = await apiJson<AvailabilityDto>(`/groups/${groupId}/availability`, {
-        method: 'PUT',
-        body: JSON.stringify({ slots }),
-      })
+      const slots = [...selectedSlots].map((key) => parseSlotKey(key))
+      const data = await apiJson<AvailabilityDto>(
+        `/groups/${groupId}/availability?${availabilityQuery()}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ slots }),
+        },
+      )
       setAvailability(data)
       setSelectedSlots(new Set(data.mine))
       toast.success('Availability saved')
@@ -271,20 +274,42 @@ export default function DecisionPage() {
     }
   }
 
+  const weekDays = availability?.days ?? []
+
+  const dayLabelByDate = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const d of weekDays) {
+      map.set(d.date, d.label)
+    }
+    return map
+  }, [weekDays])
+
   const bestSlot = useMemo(() => {
     if (!availability) return null
-    let best: { day: string; slot: string; count: number; members: string[] } | null = null
-    for (const day of DAYS) {
-      for (const slot of SLOTS) {
-        const cell = availability.heatmap[day]?.[slot]
+    let best: {
+      day: string
+      dayLabel: string
+      slot: string
+      count: number
+      members: string[]
+    } | null = null
+    for (const { date } of weekDays) {
+      for (const slot of AVAILABILITY_SLOTS) {
+        const cell = availability.heatmap[date]?.[slot]
         const c = cell?.count ?? 0
         if (!best || c > best.count) {
-          best = { day, slot, count: c, members: cell?.members ?? [] }
+          best = {
+            day: date,
+            dayLabel: dayLabelByDate.get(date) ?? date,
+            slot,
+            count: c,
+            members: cell?.members ?? [],
+          }
         }
       }
     }
     return best
-  }, [availability])
+  }, [availability, weekDays, dayLabelByDate])
 
   return (
     <div className="py-4 space-y-4">
@@ -499,6 +524,7 @@ export default function DecisionPage() {
                     </CardTitle>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Tap cells for when you&apos;re free. Darker cells mean more people are free.
+                      Resets every Sunday at midnight.
                     </p>
                   </div>
                   <Badge variant="secondary">{selectedSlots.size} selected</Badge>
@@ -513,30 +539,30 @@ export default function DecisionPage() {
                       <div className="min-w-[400px]">
                         <div className="mb-1 grid grid-cols-8 gap-1">
                           <div className="h-8" />
-                          {DAYS.map((day) => (
+                          {weekDays.map((day) => (
                             <div
-                              key={day}
-                              className="flex h-8 items-center justify-center text-xs font-medium text-muted-foreground"
+                              key={day.date}
+                              className="flex h-8 items-center justify-center text-center text-[10px] font-medium leading-tight text-muted-foreground sm:text-xs"
                             >
-                              {day}
+                              {day.label}
                             </div>
                           ))}
                         </div>
 
-                        {SLOTS.map((slot) => (
+                        {AVAILABILITY_SLOTS.map((slot) => (
                           <div key={slot} className="mb-1 grid grid-cols-8 gap-1">
                             <div className="flex h-12 items-center justify-end pr-2 text-xs text-muted-foreground">
                               {slot}
                             </div>
-                            {DAYS.map((day) => {
-                              const cell = availability.heatmap[day]?.[slot]
+                            {weekDays.map((day) => {
+                              const cell = availability.heatmap[day.date]?.[slot]
                               const count = cell?.count ?? 0
-                              const isSelected = selectedSlots.has(`${day}-${slot}`)
+                              const isSelected = selectedSlots.has(makeSlotKey(day.date, slot))
                               return (
                                 <button
-                                  key={`${day}-${slot}`}
+                                  key={`${day.date}-${slot}`}
                                   type="button"
-                                  onClick={() => toggleSlot(day, slot)}
+                                  onClick={() => toggleSlot(day.date, slot)}
                                   className={cn(
                                     'relative h-12 rounded-lg transition-all duration-200 group',
                                     getIntensityClass(count),
@@ -574,7 +600,7 @@ export default function DecisionPage() {
                     {bestSlot && bestSlot.count > 0 ? (
                       <div className="mt-6 rounded-lg bg-secondary/30 p-3">
                         <p className="mb-2 text-xs text-muted-foreground">
-                          Best overlap: {bestSlot.day} {bestSlot.slot} ({bestSlot.count}{' '}
+                          Best overlap: {bestSlot.dayLabel} {bestSlot.slot} ({bestSlot.count}{' '}
                           available)
                         </p>
                         <div className="flex -space-x-2">

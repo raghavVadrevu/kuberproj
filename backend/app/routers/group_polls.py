@@ -3,14 +3,22 @@ from collections import defaultdict
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
 from app.access import assert_group_member
+from app.availability_week import (
+    SLOTS,
+    current_availability_week,
+    is_date_in_week,
+    purge_stale_availability,
+    slot_key,
+)
 from app.group_events import notify_group_activity
 from app.auth import get_current_user_sub
 from app.db import get_connection
 from app.poll_queries import build_poll_rows
 from app.schemas import (
+    AvailabilityDayOut,
     AvailabilityOut,
     AvailabilityPut,
     HeatmapCell,
@@ -18,9 +26,6 @@ from app.schemas import (
     PollOut,
     VoteIn,
 )
-
-DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-SLOTS = ("Morning", "Afternoon", "Evening", "Night")
 
 router = APIRouter(prefix="/api/groups/{group_id}", tags=["group-content"])
 
@@ -134,36 +139,47 @@ def submit_vote(
 def get_availability(
     group_id: UUID,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
+    tz: str | None = Query(default=None, max_length=64),
 ) -> AvailabilityOut:
+    week_start, week_days = current_availability_week(tz)
+    day_isos = [iso for iso, _ in week_days]
     heatmap: dict[str, dict[str, HeatmapCell]] = {
-        d: {s: HeatmapCell(count=0) for s in SLOTS} for d in DAYS
+        d: {s: HeatmapCell(count=0) for s in SLOTS} for d in day_isos
     }
     mine_keys: list[str] = []
 
     with get_connection() as conn:
         assert_group_member(conn, group_id, user_sub)
+        gid = str(group_id)
+        purge_stale_availability(conn, gid, week_start)
+        conn.commit()
         rows = conn.execute(
             """
             SELECT day, slot, user_sub
             FROM availability
             WHERE group_id = %s::uuid
             """,
-            (str(group_id),),
+            (gid,),
         ).fetchall()
 
     cell_members: dict[tuple[str, str], list[str]] = defaultdict(list)
     for r in rows:
         d, s, sub = r["day"], r["slot"], r["user_sub"]
-        if d not in DAYS or s not in SLOTS:
+        if d not in day_isos or s not in SLOTS:
             continue
         cell_members[(d, s)].append(sub)
         if sub == user_sub:
-            mine_keys.append(f"{d}-{s}")
+            mine_keys.append(slot_key(d, s))
 
     for (d, s), members in cell_members.items():
         heatmap[d][s] = HeatmapCell(count=len(members), members=sorted(members)[:24])
 
-    return AvailabilityOut(heatmap=heatmap, mine=sorted(set(mine_keys)))
+    return AvailabilityOut(
+        heatmap=heatmap,
+        mine=sorted(set(mine_keys)),
+        week_start=week_start.isoformat(),
+        days=[AvailabilityDayOut(date=iso, label=label) for iso, label in week_days],
+    )
 
 
 @router.put("/availability", response_model=AvailabilityOut)
@@ -172,14 +188,25 @@ def put_availability(
     body: AvailabilityPut,
     user_sub: Annotated[str, Depends(get_current_user_sub)],
     background_tasks: BackgroundTasks,
+    tz: str | None = Query(default=None, max_length=64),
 ) -> AvailabilityOut:
+    week_start, week_days = current_availability_week(tz)
+    valid_dates = {iso for iso, _ in week_days}
+
     slots = body.slots
     seen: set[tuple[str, str]] = set()
     normalized: list[tuple[str, str]] = []
     for sl in slots:
         d, s = sl.day, sl.slot
-        if d not in DAYS or s not in SLOTS:
-            raise HTTPException(status_code=400, detail=f"Invalid day or slot: {d} {s}")
+        if s not in SLOTS:
+            raise HTTPException(status_code=400, detail=f"Invalid slot: {s}")
+        if not is_date_in_week(d, week_start):
+            raise HTTPException(
+                status_code=400,
+                detail="That day is outside the current week. Availability resets every Sunday.",
+            )
+        if d not in valid_dates:
+            raise HTTPException(status_code=400, detail=f"Invalid day: {d}")
         key = (d, s)
         if key in seen:
             continue
@@ -188,9 +215,11 @@ def put_availability(
 
     with get_connection() as conn:
         assert_group_member(conn, group_id, user_sub)
+        gid = str(group_id)
+        purge_stale_availability(conn, gid, week_start)
         conn.execute(
             "DELETE FROM availability WHERE group_id = %s::uuid AND user_sub = %s",
-            (str(group_id), user_sub),
+            (gid, user_sub),
         )
         for d, s in normalized:
             conn.execute(
@@ -199,9 +228,9 @@ def put_availability(
                 VALUES (%s::uuid, %s, %s, %s)
                 ON CONFLICT (group_id, user_sub, day, slot) DO UPDATE SET updated_at = now()
                 """,
-                (str(group_id), user_sub, d, s),
+                (gid, user_sub, d, s),
             )
         conn.commit()
 
     background_tasks.add_task(notify_group_activity, str(group_id), "polls")
-    return get_availability(group_id, user_sub)
+    return get_availability(group_id, user_sub, tz=tz)

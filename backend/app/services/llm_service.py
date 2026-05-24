@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 AI_MENTION_RE = re.compile(r"@huddle\b", re.IGNORECASE)
 
-CHAT_CONTEXT_LIMIT = 100
+CHAT_CONTEXT_LIMIT = 15
 
 HUDDLE_CORE_RULES = """
 CORE BEHAVIORAL RULES:

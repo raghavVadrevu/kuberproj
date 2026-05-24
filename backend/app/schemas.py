@@ -106,9 +106,17 @@ class HeatmapCell(BaseModel):
     members: list[str] = Field(default_factory=list)
 
 
+class AvailabilityDayOut(BaseModel):
+    date: str
+    label: str
+
+
 class AvailabilityOut(BaseModel):
     heatmap: dict[str, dict[str, HeatmapCell]]
     mine: list[str]
+    week_start: str
+    days: list[AvailabilityDayOut]
+    resets_note: str = "Availability resets every Sunday at midnight."
 
 
 class ExpenseCreate(BaseModel):
