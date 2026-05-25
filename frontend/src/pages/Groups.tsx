@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Plus, Trash2, UserPlus, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { UserAvatar } from '@/components/UserAvatar'
 import { PageLoader } from '@/components/ui/page-loader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -266,11 +267,19 @@ export default function GroupsPage() {
                         key={m.user_sub}
                         className="flex items-center justify-between rounded-md bg-secondary/40 px-3 py-2 text-sm"
                       >
-                        <span>
+                        <span className="flex items-center gap-2 min-w-0">
+                          <UserAvatar
+                            className="h-8 w-8 shrink-0"
+                            pictureUrl={m.picture_url}
+                            displayName={m.display_name}
+                            userSub={m.user_sub}
+                          />
+                          <span className="truncate">
                           {m.display_name ?? m.user_sub.slice(0, 8)}
                           {m.role === 'owner' ? (
                             <span className="ml-2 text-xs text-muted-foreground">(owner)</span>
                           ) : null}
+                          </span>
                         </span>
                         {meSub &&
                         m.user_sub === meSub &&

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Check, Mail, Send, UserMinus, X } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { UserAvatar } from '@/components/UserAvatar'
 import { PageLoader } from '@/components/ui/page-loader'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -168,13 +169,21 @@ export default function FriendsPage() {
                 key={r.id}
                 className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
+                <div className="flex items-center gap-3 min-w-0">
+                  <UserAvatar
+                    className="h-10 w-10 shrink-0"
+                    pictureUrl={r.from_picture_url}
+                    displayName={r.from_display_name}
+                    userSub={r.from_sub}
+                  />
+                  <div className="min-w-0">
                   <p className="text-sm font-medium">
                     {r.from_display_name ?? 'Someone'}
                   </p>
                   {r.from_email ? (
                     <p className="text-xs text-muted-foreground">{r.from_email}</p>
                   ) : null}
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="default" onClick={() => void accept(r.id)}>
@@ -205,13 +214,21 @@ export default function FriendsPage() {
                 key={r.id}
                 className="flex flex-col gap-2 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
+                <div className="flex items-center gap-3 min-w-0">
+                  <UserAvatar
+                    className="h-10 w-10 shrink-0"
+                    pictureUrl={r.to_picture_url}
+                    displayName={r.to_display_name}
+                    userSub={r.to_sub}
+                  />
+                  <div className="min-w-0">
                   <p className="text-sm font-medium">
                     {r.to_display_name ?? r.to_email ?? r.to_sub.slice(0, 8)}
                   </p>
                   {r.to_email ? (
                     <p className="text-xs text-muted-foreground">{r.to_email}</p>
                   ) : null}
+                  </div>
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => void cancelOutgoing(r.id)}>
                   Cancel
@@ -241,11 +258,19 @@ export default function FriendsPage() {
                 key={f.sub}
                 className="flex items-center justify-between gap-2 rounded-lg border border-border p-3"
               >
-                <div>
+                <div className="flex items-center gap-3 min-w-0">
+                  <UserAvatar
+                    className="h-10 w-10 shrink-0"
+                    pictureUrl={f.picture_url}
+                    displayName={f.display_name}
+                    userSub={f.sub}
+                  />
+                  <div className="min-w-0">
                   <p className="text-sm font-medium">{f.display_name}</p>
                   {f.email ? (
                     <p className="text-xs text-muted-foreground">{f.email}</p>
                   ) : null}
+                  </div>
                 </div>
                 <Button
                   size="icon"

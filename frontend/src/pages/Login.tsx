@@ -1,23 +1,40 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { fetchAuthSession, getCurrentUser, signIn } from 'aws-amplify/auth'
+import {
+  confirmSignUp,
+  fetchAuthSession,
+  getCurrentUser,
+  resendSignUpCode,
+  signIn,
+} from 'aws-amplify/auth'
 import { KeyRound, Mail, Sparkles } from 'lucide-react'
 
+import ConfirmEmailCard from '@/components/auth/ConfirmEmailCard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import AuthHeroLayout from '@/components/auth/AuthHeroLayout'
 import { isCognitoConfigured } from '@/lib/cognito-config'
-import { formatCognitoError } from '@/lib/cognito-errors'
+import {
+  formatCognitoError,
+  isUserNotConfirmedError,
+} from '@/lib/cognito-errors'
+
+type LoginStep = 'credentials' | 'confirm'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [step, setStep] = useState<LoginStep>('credentials')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmCode, setConfirmCode] = useState('')
+  const [resendMessage, setResendMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const emailNorm = email.trim().toLowerCase()
 
   useEffect(() => {
     if (!isCognitoConfigured()) return
@@ -41,9 +58,33 @@ export default function LoginPage() {
     }
   }, [navigate, location.state])
 
+  const navigateAfterSignIn = async () => {
+    const session = await fetchAuthSession()
+    if (session.tokens?.idToken) {
+      const from = (location.state as { from?: string } | null)?.from
+      const target =
+        from && from.startsWith('/') && from !== '/login' ? from : '/profile'
+      navigate(target, { replace: true })
+    }
+  }
+
+  const beginEmailConfirmation = async (username: string) => {
+    setStep('confirm')
+    setConfirmCode('')
+    setResendMessage(null)
+    setError(null)
+    try {
+      await resendSignUpCode({ username })
+      setResendMessage('Your account is not verified yet. We sent a new code — check your inbox.')
+    } catch {
+      setResendMessage(
+        'Your account is not verified yet. Enter the code from your email, or resend one below.',
+      )
+    }
+  }
+
   const handleLogin = async () => {
     setError(null)
-    const emailNorm = email.trim().toLowerCase()
     if (!emailNorm || !emailNorm.includes('@')) {
       setError('Enter a valid email.')
       return
@@ -56,20 +97,86 @@ export default function LoginPage() {
     setBusy(true)
     try {
       const result = await signIn({ username: emailNorm, password })
+      if (
+        !result.isSignedIn &&
+        result.nextStep?.signInStep === 'CONFIRM_SIGN_UP'
+      ) {
+        await beginEmailConfirmation(emailNorm)
+        return
+      }
       if (result.isSignedIn) {
-        const session = await fetchAuthSession()
-        if (session.tokens?.idToken) {
-          const from = (location.state as { from?: string } | null)?.from
-          const target =
-            from && from.startsWith('/') && from !== '/login' ? from : '/profile'
-          navigate(target, { replace: true })
-        }
+        await navigateAfterSignIn()
         return
       }
       setError(
         `Your account needs another sign-in step (${result.nextStep?.signInStep ?? 'unknown'}). ` +
           'Adjust MFA in Cognito if needed.',
       )
+    } catch (e) {
+      if (isUserNotConfirmedError(e)) {
+        await beginEmailConfirmation(emailNorm)
+        return
+      }
+      setError(formatCognitoError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleConfirm = async () => {
+    setError(null)
+    const code = confirmCode.trim()
+    if (!code) {
+      setError('Enter the verification code.')
+      return
+    }
+    if (!emailNorm) {
+      setError('Enter your email on the login form first.')
+      setStep('credentials')
+      return
+    }
+    if (!password) {
+      setError('Enter your password on the login form first.')
+      setStep('credentials')
+      return
+    }
+
+    setBusy(true)
+    try {
+      await confirmSignUp({
+        username: emailNorm,
+        confirmationCode: code,
+      })
+      const result = await signIn({ username: emailNorm, password })
+      if (result.isSignedIn) {
+        await navigateAfterSignIn()
+        return
+      }
+      if (result.nextStep?.signInStep === 'CONFIRM_SIGN_UP') {
+        setError('Verification succeeded but sign-in still needs confirmation. Try logging in again.')
+        return
+      }
+      setError('Account verified. Try logging in again.')
+      setStep('credentials')
+    } catch (e) {
+      setError(formatCognitoError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setError(null)
+    setResendMessage(null)
+    if (!emailNorm) {
+      setError('Enter your email on the login form first.')
+      setStep('credentials')
+      return
+    }
+    setBusy(true)
+    try {
+      await resendSignUpCode({ username: emailNorm })
+      setResendMessage('We sent a new code. Check your inbox and spam folder.')
     } catch (e) {
       setError(formatCognitoError(e))
     } finally {
@@ -91,6 +198,30 @@ export default function LoginPage() {
             </Button>
           </CardContent>
         </Card>
+      </AuthHeroLayout>
+    )
+  }
+
+  if (step === 'confirm') {
+    return (
+      <AuthHeroLayout>
+        <ConfirmEmailCard
+          email={emailNorm}
+          confirmCode={confirmCode}
+          onConfirmCodeChange={setConfirmCode}
+          busy={busy}
+          error={error}
+          resendMessage={resendMessage}
+          onConfirm={() => void handleConfirm()}
+          onResend={() => void handleResend()}
+          onBack={() => {
+            setStep('credentials')
+            setError(null)
+            setResendMessage(null)
+          }}
+          backLabel="Back to login"
+          intro="Your account exists but is not verified yet. Enter the code sent to"
+        />
       </AuthHeroLayout>
     )
   }

@@ -8,7 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { isCognitoConfigured } from '@/lib/cognito-config'
-import { formatCognitoError } from '@/lib/cognito-errors'
+import {
+  formatCognitoError,
+  getPasswordValidationError,
+  PASSWORD_REQUIREMENTS_HELP,
+} from '@/lib/cognito-errors'
 
 type Step = 'request' | 'confirm'
 
@@ -56,8 +60,9 @@ export default function ForgotPasswordPage() {
       setError('New passwords must match.')
       return
     }
-    if (newPassword.length < 8) {
-      setError('Use at least 8 characters.')
+    const passwordError = getPasswordValidationError(newPassword)
+    if (passwordError) {
+      setError(passwordError)
       return
     }
 
@@ -168,6 +173,7 @@ export default function ForgotPasswordPage() {
                     autoComplete="new-password"
                   />
                 </div>
+                <p className="text-xs text-muted-foreground">{PASSWORD_REQUIREMENTS_HELP}</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="fp-confirm">Confirm new password</Label>

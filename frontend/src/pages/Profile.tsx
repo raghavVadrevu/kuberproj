@@ -1,31 +1,54 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { fetchAuthSession, getCurrentUser, signOut } from 'aws-amplify/auth'
 import {
   Archive,
   Bell,
+  ImageIcon,
   KeyRound,
   LogOut,
   MessageSquare,
   Sparkles,
+  Trash2,
+  User,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/UserAvatar'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { isCognitoConfigured } from '@/lib/cognito-config'
+import { updateCognitoProfile } from '@/lib/cognito-profile'
 import { summaryFromIdToken, type CognitoProfileSummary } from '@/lib/cognito-user'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { PageLoader } from '@/components/ui/page-loader'
-import { apiJson } from '@/lib/api'
+import { apiJson, type MeUpdateDto, type UserProfileDto } from '@/lib/api'
+import { deleteAccount } from '@/lib/account'
+import { prepareAvatarFile, uploadAvatarFile, validateAvatarFile } from '@/lib/uploads'
+import { toastUserError } from '@/lib/user-errors'
 
-function profileInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) return (parts[0]![0] + parts[1]![0]).toUpperCase()
-  return name.slice(0, 2).toUpperCase() || 'HU'
+function splitDisplayName(displayName: string): { first: string; last: string } {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return { first: '', last: '' }
+  if (parts.length === 1) return { first: parts[0]!, last: '' }
+  return { first: parts[0]!, last: parts.slice(1).join(' ') }
 }
 
 function ProfileSignInPrompt() {
@@ -58,8 +81,33 @@ export default function ProfilePage() {
 
   const [session, setSession] = useState<CognitoProfileSummary | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const loadSession = useCallback(async () => {
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [pictureFile, setPictureFile] = useState<File | null>(null)
+  const [picturePreviewUrl, setPicturePreviewUrl] = useState<string | null>(null)
+  const [picturePreparing, setPicturePreparing] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const applyProfile = useCallback((me: UserProfileDto, summary: CognitoProfileSummary) => {
+    const first =
+      me.given_name?.trim() ||
+      summary.givenName ||
+      splitDisplayName(me.display_name).first
+    const last =
+      me.family_name?.trim() ||
+      summary.familyName ||
+      splitDisplayName(me.display_name).last
+    setFirstName(first)
+    setLastName(last)
+    setPicturePreviewUrl(me.picture_url ?? summary.pictureUrl)
+    setPictureFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [])
+
+  const loadProfile = useCallback(async () => {
     if (!isCognitoConfigured()) {
       setSession(null)
       setSessionLoading(false)
@@ -70,32 +118,121 @@ export default function ProfilePage() {
       await getCurrentUser()
       const authSession = await fetchAuthSession()
       const payload = authSession.tokens?.idToken?.payload
-      if (payload) {
-        setSession(summaryFromIdToken(payload))
-      } else {
+      if (!payload) {
         setSession(null)
+        return
       }
+      const summary = summaryFromIdToken(payload)
+      const me = await apiJson<UserProfileDto>('/me')
+      setSession(summary)
+      applyProfile(me, summary)
     } catch {
       setSession(null)
     } finally {
       setSessionLoading(false)
     }
-  }, [])
+  }, [applyProfile])
 
   useEffect(() => {
-    void loadSession()
-  }, [loadSession])
+    void loadProfile()
+  }, [loadProfile])
 
   useEffect(() => {
-    if (!session) return
-    void (async () => {
-      try {
-        await apiJson('/me', { method: 'PUT', body: '{}' })
-      } catch {
-        /* sync optional */
+    if (!pictureFile) return
+    const url = URL.createObjectURL(pictureFile)
+    setPicturePreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [pictureFile])
+
+  const clearPictureSelection = () => {
+    setPictureFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    setPicturePreviewUrl(session?.pictureUrl ?? null)
+  }
+
+  const handlePictureChange = (file: File | null) => {
+    if (!file) {
+      clearPictureSelection()
+      return
+    }
+    const validationError = validateAvatarFile(file)
+    if (validationError) {
+      toast.error(validationError)
+      clearPictureSelection()
+      return
+    }
+    setPicturePreparing(true)
+    void prepareAvatarFile(file)
+      .then((prepared) => setPictureFile(prepared))
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : 'Could not process this image.')
+        clearPictureSelection()
+      })
+      .finally(() => setPicturePreparing(false))
+  }
+
+  const handleSaveProfile = async () => {
+    const given = firstName.trim()
+    const family = lastName.trim()
+    if (!given || !family) {
+      toast.error('Enter your first and last name.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      let pictureUrl: string | undefined
+      if (pictureFile) {
+        pictureUrl = await uploadAvatarFile(pictureFile, { authenticated: true })
       }
-    })()
-  }, [session])
+
+      await updateCognitoProfile({
+        givenName: given,
+        familyName: family,
+        pictureUrl: pictureUrl ?? session?.pictureUrl ?? null,
+      })
+
+      const body: MeUpdateDto = {
+        given_name: given,
+        family_name: family,
+      }
+      if (pictureUrl !== undefined) {
+        body.picture_url = pictureUrl
+      }
+
+      const me = await apiJson<UserProfileDto>('/me', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      })
+
+      const authSession = await fetchAuthSession({ forceRefresh: true })
+      const payload = authSession.tokens?.idToken?.payload
+      if (payload) {
+        const summary = summaryFromIdToken(payload)
+        setSession(summary)
+        applyProfile(me, summary)
+      }
+
+      toast.success('Profile updated')
+    } catch (e) {
+      toastUserError(e, "Couldn't save your profile. Try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true)
+    try {
+      await deleteAccount()
+      toast.success('Your account was deleted')
+      navigate('/signup', { replace: true })
+    } catch (e) {
+      toastUserError(e, "Couldn't delete your account. Try again.")
+    } finally {
+      setDeletingAccount(false)
+    }
+  }
 
   const handleLogout = async () => {
     try {
@@ -115,29 +252,105 @@ export default function ProfilePage() {
     return <ProfileSignInPrompt />
   }
 
+  const avatarPreview =
+    picturePreviewUrl ??
+    (pictureFile ? null : session.pictureUrl)
+
   return (
     <div className="py-4 lg:py-6 space-y-6">
       <Card className="glass border-primary/20 overflow-hidden relative">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 pointer-events-none" />
         <CardContent className="relative pt-6 pb-6 space-y-5">
-          <div className="flex items-center gap-4">
-            <Avatar className="h-16 w-16 rounded-2xl border border-border/80">
-              {session.pictureUrl ? (
-                <AvatarImage src={session.pictureUrl} alt="" className="object-cover" />
-              ) : null}
-              <AvatarFallback className="rounded-2xl bg-primary/20 text-lg font-semibold text-primary">
-                {profileInitials(session.displayName)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-xl font-semibold tracking-tight truncate">{session.displayName}</h2>
-              {session.email ? (
-                <p className="text-sm text-muted-foreground truncate">{session.email}</p>
-              ) : (
-                <p className="text-sm text-muted-foreground">Signed in</p>
-              )}
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Your profile</p>
+            <p className="text-xs text-muted-foreground">
+              Name and photo sync to your account and appear across the app.
+            </p>
+          </div>
+
+          <div className="flex items-start gap-4">
+            <UserAvatar
+              className="h-16 w-16 rounded-2xl border border-border/80 shrink-0"
+              fallbackClassName="rounded-2xl bg-primary/20 text-lg font-semibold text-primary"
+              pictureUrl={avatarPreview}
+              displayName={`${firstName} ${lastName}`.trim()}
+              userSub={session.sub}
+            />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                capture="user"
+                className="sr-only"
+                onChange={(e) => handlePictureChange(e.target.files?.[0] ?? null)}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={saving || picturePreparing}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <ImageIcon className="h-4 w-4" />
+                  {pictureFile ? 'Change photo' : 'Upload photo'}
+                </Button>
+                {pictureFile ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 text-muted-foreground"
+                    disabled={saving}
+                    onClick={clearPictureSelection}
+                  >
+                    <X className="h-4 w-4" />
+                    Cancel
+                  </Button>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Large images are compressed to 2 MB before upload.
+              </p>
             </div>
           </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="profile-first">First name</Label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="profile-first"
+                  className="pl-9"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  autoComplete="given-name"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="profile-last">Last name</Label>
+              <Input
+                id="profile-last"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                autoComplete="family-name"
+              />
+            </div>
+          </div>
+
+          {session.email ? (
+            <p className="text-sm text-muted-foreground">
+              Email: <span className="text-foreground">{session.email}</span> (cannot be changed here)
+            </p>
+          ) : null}
+
+          <Button className="w-full" disabled={saving || picturePreparing} onClick={() => void handleSaveProfile()}>
+            {saving ? 'Saving…' : 'Save profile'}
+          </Button>
 
           <Separator />
 
@@ -214,7 +427,36 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <Button variant="destructive" className="w-full mt-2" onClick={() => void handleLogout()}>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" className="w-full text-destructive hover:text-destructive">
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete account
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This removes your profile, friendships, and group memberships from Huddle and deletes
+                  your Cognito login. Group expenses and messages you created may still appear for
+                  others. This cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deletingAccount}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={deletingAccount}
+                  onClick={() => void handleDeleteAccount()}
+                >
+                  {deletingAccount ? 'Deleting…' : 'Delete my account'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <Button variant="destructive" className="w-full" onClick={() => void handleLogout()}>
             <LogOut className="w-4 h-4 mr-2" />
             Log out
           </Button>

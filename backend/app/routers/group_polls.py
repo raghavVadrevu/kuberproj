@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 
-from app.access import assert_group_member
+from app.access import assert_group_member, assert_group_owner
 from app.availability_week import (
     SLOTS,
     current_availability_week,
@@ -133,6 +133,38 @@ def submit_vote(
             raise HTTPException(status_code=404, detail="Poll not found")
         background_tasks.add_task(notify_group_activity, str(group_id), "polls")
         return rows[0]
+
+
+@router.delete("/polls/{poll_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_poll(
+    group_id: UUID,
+    poll_id: UUID,
+    user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
+) -> None:
+    with get_connection() as conn:
+        assert_group_member(conn, group_id, user_sub)
+        poll = conn.execute(
+            """
+            SELECT id, created_by, group_id FROM polls WHERE id = %s::uuid
+            """,
+            (str(poll_id),),
+        ).fetchone()
+        if not poll:
+            raise HTTPException(status_code=404, detail="Poll not found")
+        if str(poll["group_id"]) != str(group_id):
+            raise HTTPException(status_code=404, detail="Poll not in this group")
+        if poll["created_by"] != user_sub:
+            try:
+                assert_group_owner(conn, group_id, user_sub)
+            except HTTPException:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the poll creator or group owner can delete this poll",
+                ) from None
+        conn.execute("DELETE FROM polls WHERE id = %s::uuid", (str(poll_id),))
+        conn.commit()
+    background_tasks.add_task(notify_group_activity, str(group_id), "polls")
 
 
 @router.get("/availability", response_model=AvailabilityOut)

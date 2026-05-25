@@ -12,6 +12,17 @@ import {
   ArrowDown,
   Trash2,
 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { formatDistanceToNow } from 'date-fns'
 import { toast } from 'sonner'
 
@@ -20,7 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/UserAvatar'
 import {
   Dialog,
   DialogContent,
@@ -44,7 +55,10 @@ import {
   apiJson,
   type AvailabilityDto,
   type GroupDto,
+  type GroupMemberDto,
+  type GroupDetailDto,
   type PollDto,
+  type UserProfileDto,
 } from '@/lib/api'
 import {
   AVAILABILITY_SLOTS,
@@ -89,14 +103,20 @@ export default function DecisionPage() {
   const [savingAvail, setSavingAvail] = useState(false)
   const [votingId, setVotingId] = useState<string | null>(null)
   const [groupsList, setGroupsList] = useState<GroupDto[]>([])
+  const [groupMembers, setGroupMembers] = useState<GroupMemberDto[]>([])
   const [groupId, setGroupId] = useState<string | null>(null)
   const [loadingGroups, setLoadingGroups] = useState(true)
   const [activeTab, setActiveTab] = useState<'polls' | 'heatmap'>('polls')
+  const [meSub, setMeSub] = useState<string | null>(null)
 
   const loadGroups = useCallback(async () => {
     setLoadingGroups(true)
     try {
-      const data = await apiJson<GroupDto[]>('/groups')
+      const [data, me] = await Promise.all([
+        apiJson<GroupDto[]>('/groups'),
+        apiJson<UserProfileDto>('/me'),
+      ])
+      setMeSub(me.sub)
       setGroupsList(data)
       const stored = localStorage.getItem(ACTIVE_GROUP_STORAGE_KEY)
       const pick =
@@ -139,6 +159,27 @@ export default function DecisionPage() {
     }
   }, [groupId])
 
+  const loadGroupMembers = useCallback(async () => {
+    if (!groupId) {
+      setGroupMembers([])
+      return
+    }
+    try {
+      const detail = await apiJson<GroupDetailDto>(`/groups/${groupId}`)
+      setGroupMembers(detail.members)
+    } catch {
+      setGroupMembers([])
+    }
+  }, [groupId])
+
+  const memberPictureBySub = useMemo(() => {
+    const map = new Map<string, string | null>()
+    for (const m of groupMembers) {
+      map.set(m.user_sub, m.picture_url ?? null)
+    }
+    return map
+  }, [groupMembers])
+
   const loadAvailability = useCallback(async () => {
     if (!groupId) {
       setAvailability(null)
@@ -159,6 +200,10 @@ export default function DecisionPage() {
       setLoadingAvail(false)
     }
   }, [groupId])
+
+  useEffect(() => {
+    void loadGroupMembers()
+  }, [loadGroupMembers])
 
   useEffect(() => {
     void loadPolls()
@@ -214,6 +259,19 @@ export default function DecisionPage() {
       toastUserError(e, "Couldn't save your vote. Try again.")
     } finally {
       setVotingId(null)
+    }
+  }
+
+  const deletePoll = async (pollId: string) => {
+    if (!groupId) return
+    try {
+      await apiJson(`/groups/${groupId}/polls/${pollId}`, { method: 'DELETE' })
+      setPolls((prev) => prev.filter((p) => p.id !== pollId))
+      if (expandedPollId === pollId) setExpandedPollId(null)
+      toast.success('Poll deleted')
+      refreshNavBadges()
+    } catch (e) {
+      toastUserError(e, "Couldn't delete that poll. Try again.")
     }
   }
 
@@ -420,13 +478,47 @@ export default function DecisionPage() {
                           {proposal.vote_count} voted
                         </p>
                       </div>
-                      <Button variant="ghost" size="icon" className="shrink-0" type="button">
-                        {isExpanded ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        )}
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {meSub === proposal.created_by ? (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                type="button"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete this poll?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This removes the poll and all votes permanently.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  onClick={() => void deletePoll(proposal.id)}
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        ) : null}
+                        <Button variant="ghost" size="icon" className="h-8 w-8" type="button">
+                          {isExpanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
 
@@ -605,11 +697,13 @@ export default function DecisionPage() {
                         </p>
                         <div className="flex -space-x-2">
                           {bestSlot.members.slice(0, 12).map((sub) => (
-                            <Avatar key={sub} className="h-7 w-7 border-2 border-card">
-                              <AvatarFallback className="bg-indigo-500/50 text-[11px]">
-                                {subMonogram(sub)}
-                              </AvatarFallback>
-                            </Avatar>
+                            <UserAvatar
+                              key={sub}
+                              className="h-7 w-7 border-2 border-card"
+                              fallbackClassName="bg-indigo-500/50 text-[11px]"
+                              pictureUrl={memberPictureBySub.get(sub)}
+                              userSub={sub}
+                            />
                           ))}
                         </div>
                       </div>

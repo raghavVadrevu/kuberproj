@@ -7,10 +7,29 @@ class UserProfileOut(BaseModel):
     sub: str
     email: str | None = None
     display_name: str
+    given_name: str | None = None
+    family_name: str | None = None
+    picture_url: str | None = None
 
 
 class MePut(BaseModel):
+    given_name: str | None = Field(default=None, max_length=100)
+    family_name: str | None = Field(default=None, max_length=100)
+    picture_url: str | None = Field(default=None, max_length=2000)
     display_name: str | None = Field(default=None, max_length=200)
+
+
+class AvatarPresignIn(BaseModel):
+    content_type: str = Field(min_length=1, max_length=100)
+    content_length: int | None = Field(default=None, ge=1)
+
+
+class AvatarPresignOut(BaseModel):
+    upload_url: str
+    public_url: str
+    key: str
+    content_type: str
+    max_bytes: int
 
 
 class FriendRequestCreate(BaseModel):
@@ -25,8 +44,10 @@ class FriendRequestOut(BaseModel):
     created_at: str
     from_display_name: str | None = None
     from_email: str | None = None
+    from_picture_url: str | None = None
     to_display_name: str | None = None
     to_email: str | None = None
+    to_picture_url: str | None = None
 
 
 class FriendRequestCreateResult(BaseModel):
@@ -46,6 +67,7 @@ class GroupMemberOut(BaseModel):
     joined_at: str
     display_name: str | None = None
     email: str | None = None
+    picture_url: str | None = None
 
 
 class GroupOut(BaseModel):
@@ -136,6 +158,7 @@ class ExpenseOut(BaseModel):
     category: str
     paid_by_sub: str
     paid_by_display_name: str | None = None
+    paid_by_picture_url: str | None = None
     participant_subs: list[str]
     participant_count: int
     share_amount: float
@@ -146,12 +169,14 @@ class ExpenseOut(BaseModel):
 class TabBalanceRow(BaseModel):
     user_sub: str
     display_name: str | None = None
+    picture_url: str | None = None
     net: float
 
 
 class TabMemberLite(BaseModel):
     user_sub: str
     display_name: str | None = None
+    picture_url: str | None = None
 
 
 class TabOverviewOut(BaseModel):

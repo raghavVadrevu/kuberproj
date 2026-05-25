@@ -82,7 +82,7 @@ def _group_detail(conn, group_id: UUID, viewer_sub: str) -> GroupDetailOut:
     ).fetchone()
     members = conn.execute(
         """
-        SELECT gm.user_sub, gm.role, gm.joined_at, p.display_name, p.email
+        SELECT gm.user_sub, gm.role, gm.joined_at, p.display_name, p.email, p.picture_url
         FROM group_members gm
         LEFT JOIN user_profiles p ON p.sub = gm.user_sub
         WHERE gm.group_id = %s::uuid
@@ -97,6 +97,7 @@ def _group_detail(conn, group_id: UUID, viewer_sub: str) -> GroupDetailOut:
             joined_at=m["joined_at"].isoformat(),
             display_name=m.get("display_name"),
             email=m.get("email"),
+            picture_url=m.get("picture_url"),
         )
         for m in members
     ]

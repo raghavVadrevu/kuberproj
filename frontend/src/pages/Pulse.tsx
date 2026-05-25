@@ -17,7 +17,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { PageLoader } from '@/components/ui/page-loader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/UserAvatar'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatRupees } from '@/lib/currency'
@@ -58,15 +58,6 @@ function subMonogram(sub: string): string {
   return sub.slice(0, 2).toUpperCase()
 }
 
-function initialsFromName(name: string | null | undefined, sub: string): string {
-  if (name?.trim()) {
-    const p = name.trim().split(/\s+/)
-    if (p.length >= 2) return (p[0]![0] + p[1]![0]).toUpperCase()
-    return name.slice(0, 2).toUpperCase()
-  }
-  return subMonogram(sub)
-}
-
 export default function PulsePage() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null)
   const [groupsList, setGroupsList] = useState<GroupDto[]>([])
@@ -75,11 +66,27 @@ export default function PulsePage() {
   const [tabOverview, setTabOverview] = useState<TabOverviewDto | null>(null)
   const [tldr, setTldr] = useState<string | null>(null)
   const [tldrLoading, setTldrLoading] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [tldrError, setTldrError] = useState<string | null>(null)
+  const [loadingCore, setLoadingCore] = useState(true)
+  const [coreError, setCoreError] = useState<string | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
 
-  const loadPulse = useCallback(async () => {
-    setError(null)
+  const loadTldr = useCallback(async (gid: string) => {
+    setTldrLoading(true)
+    setTldrError(null)
+    setTldr(null)
+    try {
+      const tldrData = await apiJson<PulseTldrDto>(`/groups/${gid}/pulse/tldr`)
+      setTldr(tldrData.tldr)
+    } catch (e) {
+      setTldrError(getUserErrorMessage(e, "Couldn't generate your summary."))
+    } finally {
+      setTldrLoading(false)
+    }
+  }, [])
+
+  const loadCore = useCallback(async () => {
+    setCoreError(null)
     const session = await fetchAuthSession()
     const token = session.tokens?.idToken?.toString()
     if (!token) {
@@ -89,12 +96,13 @@ export default function PulsePage() {
       setPolls([])
       setTabOverview(null)
       setTldr(null)
+      setTldrLoading(false)
+      setLoadingCore(false)
+      setAuthChecked(true)
       return
     }
     setSignedIn(true)
-    setLoading(true)
-    setTldrLoading(true)
-    setTldr(null)
+    setLoadingCore(true)
     try {
       const groups = await apiJson<GroupDto[]>('/groups')
       setGroupsList(groups)
@@ -106,30 +114,36 @@ export default function PulsePage() {
         setPolls([])
         setTabOverview(null)
         setTldr(null)
+        setTldrLoading(false)
         return
       }
-      const [pollData, tabData, tldrData] = await Promise.all([
+      const [pollData, tabData] = await Promise.all([
         apiJson<PollDto[]>(`/groups/${gid}/polls`),
         apiJson<TabOverviewDto>(`/groups/${gid}/tab`),
-        apiJson<PulseTldrDto>(`/groups/${gid}/pulse/tldr`),
       ])
       setPolls(pollData.filter((p) => p.status === 'active'))
       setTabOverview(tabData)
-      setTldr(tldrData.tldr)
+      void loadTldr(gid)
     } catch (e) {
-      setError(getUserErrorMessage(e, "Couldn't load your pulse. Try again."))
+      setCoreError(getUserErrorMessage(e, "Couldn't load your pulse. Try again."))
       setPolls([])
       setTabOverview(null)
       setTldr(null)
-    } finally {
-      setLoading(false)
       setTldrLoading(false)
+    } finally {
+      setLoadingCore(false)
+      setAuthChecked(true)
     }
-  }, [])
+  }, [loadTldr])
 
   useEffect(() => {
-    void loadPulse()
-  }, [loadPulse])
+    void loadCore()
+  }, [loadCore])
+
+  useEffect(() => {
+    if (!signedIn || !groupId) return
+    void loadTldr(groupId)
+  }, [groupId, signedIn, loadTldr])
 
   const members: TabMemberLiteDto[] = tabOverview?.members ?? []
 
@@ -150,21 +164,24 @@ export default function PulsePage() {
     if (!groupId) {
       return 'Create or join a group to see proposals and shared tabs here.'
     }
-    if (error) {
-      return error
+    if (coreError) {
+      return coreError
+    }
+    if (tldrError) {
+      return tldrError
     }
     if (tldrLoading) {
       return null
     }
     return tldr
-  }, [signedIn, groupId, error, tldr, tldrLoading])
+  }, [signedIn, groupId, coreError, tldrError, tldr, tldrLoading])
 
   const groupLabel = useMemo(() => {
     if (!groupId) return null
     return groupsList.find((g) => g.id === groupId)?.name ?? 'Your group'
   }, [groupId, groupsList])
 
-  if (signedIn && loading && !error) {
+  if (!authChecked) {
     return <PageLoader label="Loading your pulse…" />
   }
 
@@ -186,11 +203,16 @@ export default function PulsePage() {
             ) : null}
           </div>
         </CardHeader>
-        <CardContent className="relative">
+        <CardContent className="relative min-h-[4.5rem]">
           <p className="leading-relaxed text-foreground">
             <span className="font-semibold text-primary">TL;DR:</span>{' '}
-            {synthesis === null ? (
-              <span className="text-muted-foreground animate-pulse">huddle is catching up…</span>
+            {tldrLoading && signedIn && groupId && !coreError ? (
+              <span className="inline-flex items-center gap-2 text-muted-foreground">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                Summarizing your group…
+              </span>
+            ) : synthesis === null ? (
+              <span className="text-muted-foreground">…</span>
             ) : (
               synthesis
             )}
@@ -199,11 +221,14 @@ export default function PulsePage() {
             <div className="mt-4 flex items-center gap-2">
               <div className="flex -space-x-2">
                 {members.slice(0, 6).map((m) => (
-                  <Avatar key={m.user_sub} className="h-7 w-7 border-2 border-card">
-                    <AvatarFallback className="bg-secondary text-[11px]">
-                      {initialsFromName(m.display_name, m.user_sub)}
-                    </AvatarFallback>
-                  </Avatar>
+                  <UserAvatar
+                    key={m.user_sub}
+                    className="h-7 w-7 border-2 border-card"
+                    fallbackClassName="bg-secondary text-[11px]"
+                    pictureUrl={m.picture_url}
+                    displayName={m.display_name}
+                    userSub={m.user_sub}
+                  />
                 ))}
               </div>
               <span className="text-xs text-muted-foreground">
@@ -244,7 +269,7 @@ export default function PulsePage() {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Active proposals</h2>
           <Badge variant="secondary" className="text-xs">
-            {loading ? '…' : `${activePolls.length} open`}
+            {loadingCore ? '…' : `${activePolls.length} open`}
           </Badge>
         </div>
         {!signedIn ? (

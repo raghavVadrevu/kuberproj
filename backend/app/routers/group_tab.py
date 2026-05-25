@@ -34,7 +34,7 @@ def _profile_map(conn, subs: list[str]) -> dict[str, dict[str, Any]]:
         return {}
     rows = conn.execute(
         """
-        SELECT sub, display_name, email FROM user_profiles
+        SELECT sub, display_name, email, picture_url FROM user_profiles
         WHERE sub = ANY(%s)
         """,
         (subs,),
@@ -57,6 +57,7 @@ def _row_to_expense_out(row: dict, pmap: dict[str, dict]) -> ExpenseOut:
         category=row["category"],
         paid_by_sub=paid,
         paid_by_display_name=prof.get("display_name"),
+        paid_by_picture_url=prof.get("picture_url"),
         participant_subs=parts,
         participant_count=n,
         share_amount=round(sh, 2),
@@ -73,7 +74,11 @@ def _build_overview(conn, group_id: UUID, viewer_sub: str) -> TabOverviewOut:
     pmap = _profile_map(conn, member_subs)
 
     members_out = [
-        TabMemberLite(user_sub=s, display_name=pmap.get(s, {}).get("display_name"))
+        TabMemberLite(
+            user_sub=s,
+            display_name=pmap.get(s, {}).get("display_name"),
+            picture_url=pmap.get(s, {}).get("picture_url"),
+        )
         for s in member_subs
     ]
 
@@ -126,6 +131,7 @@ def _build_overview(conn, group_id: UUID, viewer_sub: str) -> TabOverviewOut:
             TabBalanceRow(
                 user_sub=sub,
                 display_name=pmap_bal.get(sub, {}).get("display_name"),
+                picture_url=pmap_bal.get(sub, {}).get("picture_url"),
                 net=round(v, 2),
             )
         )
@@ -197,6 +203,137 @@ def create_expense(
             VALUES (%s::uuid, %s, %s, %s, %s, %s, false, %s)
             """,
             (gid, desc, str(amt), cat, paid_by, participants, user_sub),
+        )
+        conn.commit()
+        overview = _build_overview(conn, group_id, user_sub)
+    background_tasks.add_task(notify_group_activity, str(group_id), "tab")
+    return overview
+
+
+@router.post("/tab/expenses/{expense_id}/unsettle", response_model=TabOverviewOut)
+def unsettle_expense(
+    group_id: UUID,
+    expense_id: UUID,
+    user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
+) -> TabOverviewOut:
+    with get_connection() as conn:
+        assert_group_member(conn, group_id, user_sub)
+        row = conn.execute(
+            """
+            SELECT id, settled FROM group_expenses
+            WHERE id = %s::uuid AND group_id = %s::uuid
+            """,
+            (str(expense_id), str(group_id)),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Expense not found")
+        if not row["settled"]:
+            raise HTTPException(status_code=400, detail="Expense is not settled")
+        conn.execute(
+            "UPDATE group_expenses SET settled = false WHERE id = %s::uuid",
+            (str(expense_id),),
+        )
+        conn.commit()
+        overview = _build_overview(conn, group_id, user_sub)
+    background_tasks.add_task(notify_group_activity, str(group_id), "tab")
+    return overview
+
+
+@router.delete("/tab/expenses/{expense_id}", response_model=TabOverviewOut)
+def delete_expense(
+    group_id: UUID,
+    expense_id: UUID,
+    user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
+) -> TabOverviewOut:
+    with get_connection() as conn:
+        assert_group_member(conn, group_id, user_sub)
+        row = conn.execute(
+            """
+            SELECT id FROM group_expenses
+            WHERE id = %s::uuid AND group_id = %s::uuid
+            """,
+            (str(expense_id), str(group_id)),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Expense not found")
+        conn.execute(
+            "DELETE FROM group_expenses WHERE id = %s::uuid",
+            (str(expense_id),),
+        )
+        conn.commit()
+        overview = _build_overview(conn, group_id, user_sub)
+    background_tasks.add_task(notify_group_activity, str(group_id), "tab")
+    return overview
+
+
+@router.post("/tab/settle-all", response_model=TabOverviewOut)
+def settle_all_expenses(
+    group_id: UUID,
+    user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
+) -> TabOverviewOut:
+    with get_connection() as conn:
+        assert_group_member(conn, group_id, user_sub)
+        conn.execute(
+            """
+            UPDATE group_expenses SET settled = true
+            WHERE group_id = %s::uuid AND NOT settled
+            """,
+            (str(group_id),),
+        )
+        conn.commit()
+        overview = _build_overview(conn, group_id, user_sub)
+    background_tasks.add_task(notify_group_activity, str(group_id), "tab")
+    return overview
+
+
+@router.delete("/tab/expenses", response_model=TabOverviewOut)
+def clear_tab_expenses(
+    group_id: UUID,
+    user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
+) -> TabOverviewOut:
+    with get_connection() as conn:
+        assert_group_member(conn, group_id, user_sub)
+        conn.execute(
+            "DELETE FROM group_expenses WHERE group_id = %s::uuid",
+            (str(group_id),),
+        )
+        conn.commit()
+        overview = _build_overview(conn, group_id, user_sub)
+    background_tasks.add_task(notify_group_activity, str(group_id), "tab")
+    return overview
+
+
+@router.post("/tab/settle-with/{other_sub}", response_model=TabOverviewOut)
+def settle_with_member(
+    group_id: UUID,
+    other_sub: str,
+    user_sub: Annotated[str, Depends(get_current_user_sub)],
+    background_tasks: BackgroundTasks,
+) -> TabOverviewOut:
+    other = other_sub.strip()
+    if not other or other == user_sub:
+        raise HTTPException(status_code=400, detail="Invalid member")
+
+    with get_connection() as conn:
+        assert_group_member(conn, group_id, user_sub)
+        member_subs = _member_subs(conn, str(group_id))
+        if other not in member_subs:
+            raise HTTPException(status_code=400, detail="That person is not in this group")
+
+        conn.execute(
+            """
+            UPDATE group_expenses SET settled = true
+            WHERE group_id = %s::uuid AND NOT settled
+              AND (
+                (paid_by_sub = %s OR %s = ANY(participant_subs))
+                AND (paid_by_sub = %s OR %s = ANY(participant_subs))
+              )
+            """,
+            (str(group_id), user_sub, user_sub, other, other),
         )
         conn.commit()
         overview = _build_overview(conn, group_id, user_sub)

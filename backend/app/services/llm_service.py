@@ -18,7 +18,7 @@ HUDDLE_CORE_RULES = """
 CORE BEHAVIORAL RULES:
 1. NO AI DISCLAIMERS: You must NEVER say "As an AI", "As a language model", or mention Docker, AWS, or your infrastructure. You are just Huddle.
 2. TEXT LIKE A HUMAN: Speak exactly like a normal person in a group chat. Use lowercase letters casually when it fits the vibe.
-3. THE ANTI-THERAPIST RULE: Never act like a mediator, HR rep, or therapist. Do NOT invent backstories, apologize, or talk about "group harmony."
+3. THE ANTI-THERAPIST RULE: Never act like a mediator, HR rep, or therapist. Do NOT talk about "group harmony." However, do NOT reject casual chat, greetings, or general questions — just answer them with your signature casual, witty vibe.
 4. BAN CORPORATE SPEAK: Never say "I hope you're doing well," "How can I assist," or "Here is the summary." Just drop the answer.
 5. MATCH THE VIBE: Keep it casual and direct — like a friend who scanned the group chat and tab.
 6. BE THE LOGISTICS WIZARD: When money or polls matter, be specific with numbers and names from the data.
@@ -32,9 +32,9 @@ User messages are prefixed with "[Message from Name]:" so you know who is speaki
 
 {HUDDLE_CORE_RULES}
 8. CHAT LENGTH: Keep responses incredibly concise (1-2 sentences max unless summarizing data).
-9. BANTER: If friends joke around, insult each other, or say "STFU," play along with witty banter.
+9. BANTER: If friends joke around, ask how you are doing, shoot the breeze, or use slang, play along seamlessly with witty banter. Do not constantly remind them you only do logistics unless they ask you to perform an unsupported app action.
 10. SUMMARIES: When asked to summarize plans, debts, or schedules, use clean, punchy bullet points.
-11. GROUP SNAPSHOT: When a GROUP ACTIVITY block is attached, use it for polls, expenses, and balances. Do not recite it unprompted — only when relevant to the question.
+11. GROUP SNAPSHOT: A GROUP ACTIVITY block is attached for your situational awareness. Only reference it when explicitly asked about expenses, balances, or polls. If the user is just chatting or asking general questions, ignore the block completely and respond naturally.
 
 Read the room, step in seamlessly, drop your message, and step out.
 """
@@ -63,13 +63,24 @@ def _is_local_env() -> bool:
     return env.strip().lower() == "local"
 
 
+CHAT_FALLBACK_REPLY = (
+    "My bad, my circuit breakers tripped out. Try sending that again."
+)
+
+
 def _llm_model() -> str:
     if _is_local_env():
-        return os.environ.get("LLM_LOCAL_MODEL", "ollama/phi3")
+        return os.environ.get("LLM_LOCAL_MODEL", "ollama/llama3.2:1b")
     return os.environ.get(
         "LLM_PROD_MODEL",
         "bedrock/deepseek.v3.2",
     )
+
+
+def _local_fallback_model() -> str | None:
+    if not _is_local_env():
+        return None
+    return os.environ.get("LLM_LOCAL_FALLBACK_MODEL", "ollama/llama3.2:1b")
 
 
 def _ollama_api_base() -> str | None:
@@ -98,16 +109,33 @@ def format_user_message(sender_name: str, content: str) -> str:
     return f"[Message from {label}]: {content}"
 
 
-def _completion_kwargs(messages: list[dict[str, str]], *, stream: bool) -> dict:
+def _completion_kwargs(
+    messages: list[dict[str, str]],
+    *,
+    stream: bool,
+    model: str | None = None,
+) -> dict:
     kwargs: dict = {
-        "model": _llm_model(),
+        "model": model or _llm_model(),
         "messages": messages,
         "stream": stream,
     }
     api_base = _ollama_api_base()
     if api_base:
         kwargs["api_base"] = api_base
+        kwargs["max_tokens"] = int(os.environ.get("LLM_MAX_TOKENS", "384"))
     return kwargs
+
+
+async def _stream_tokens(messages: list[dict[str, str]], *, model: str) -> AsyncIterator[str]:
+    response = await acompletion(**_completion_kwargs(messages, stream=True, model=model))
+    async for chunk in response:
+        choice = chunk.choices[0] if chunk.choices else None
+        if not choice or not choice.delta:
+            continue
+        content = choice.delta.content
+        if content:
+            yield content
 
 
 def build_llm_messages(
@@ -169,22 +197,35 @@ async def stream_chat_response(
     """
     context = (history or [])[-CHAT_CONTEXT_LIMIT:]
     messages = build_llm_messages(context, group_activity=group_activity)
-    model = _llm_model()
     api_base = _ollama_api_base()
+    models: list[str] = []
+    primary = _llm_model()
+    if primary not in models:
+        models.append(primary)
+    fallback = _local_fallback_model()
+    if fallback and fallback not in models:
+        models.append(fallback)
 
-    try:
-        response = await acompletion(**_completion_kwargs(messages, stream=True))
-        async for chunk in response:
-            choice = chunk.choices[0] if chunk.choices else None
-            if not choice or not choice.delta:
-                continue
-            content = choice.delta.content
-            if content:
-                yield content
-    except Exception:
-        logger.exception("LLM stream failed model=%s api_base=%s", model, api_base)
-        yield (
-            "Sorry, I could not reach the AI service right now. "
-            "If you are running locally, ensure the Ollama container is up and "
-            "the phi3 model has been pulled."
+    last_error: Exception | None = None
+    for model in models:
+        try:
+            async for token in _stream_tokens(messages, model=model):
+                yield token
+            return
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                "LLM stream failed model=%s api_base=%s; trying next",
+                model,
+                api_base,
+                exc_info=True,
+            )
+
+    if last_error:
+        logger.error(
+            "LLM stream exhausted models=%s api_base=%s",
+            models,
+            api_base,
+            exc_info=last_error,
         )
+    yield CHAT_FALLBACK_REPLY

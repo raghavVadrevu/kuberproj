@@ -121,6 +121,15 @@ def _migrate(conn: psycopg.Connection) -> None:
             """
         )
 
+    pic = conn.execute(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'user_profiles' AND column_name = 'picture_url'
+        """
+    ).fetchone()
+    if not pic:
+        conn.execute("ALTER TABLE user_profiles ADD COLUMN picture_url TEXT")
+
 
 def init_schema() -> None:
     ddl = """
@@ -130,6 +139,7 @@ def init_schema() -> None:
       sub TEXT PRIMARY KEY,
       email TEXT UNIQUE,
       display_name TEXT NOT NULL DEFAULT 'Member',
+      picture_url TEXT,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 

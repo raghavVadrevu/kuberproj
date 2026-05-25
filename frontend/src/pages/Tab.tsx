@@ -11,15 +11,29 @@ import {
   ShoppingBag,
   Utensils,
   Check,
+  Trash2,
+  RotateCcw,
+  HandCoins,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { toast } from 'sonner'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { PageLoader } from '@/components/ui/page-loader'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/UserAvatar'
 import {
   Drawer,
   DrawerContent,
@@ -123,7 +137,7 @@ export default function TabPage() {
       const data = await apiJson<TabOverviewDto>(`/groups/${groupId}/tab`)
       setOverview(data)
       setPaidBySub((prev) => {
-        if (prev && data.members.some((m) => m.user_sub === prev)) return prev
+        if (prev && (data.members ?? []).some((m) => m.user_sub === prev)) return prev
         return data.viewer_sub
       })
     } catch (e) {
@@ -179,7 +193,7 @@ export default function TabPage() {
     }
     const payer = paidBySub ?? overview.viewer_sub
     const parts = splitEveryone
-      ? overview.members.map((m) => m.user_sub)
+      ? members.map((m) => m.user_sub)
       : [...participantPick]
     if (!splitEveryone && parts.length < 2) {
       toast.error('Select at least two people')
@@ -230,13 +244,90 @@ export default function TabPage() {
     }
   }
 
+  const unsettleExpense = async (expenseId: string) => {
+    if (!groupId) return
+    try {
+      const data = await apiJson<TabOverviewDto>(
+        `/groups/${groupId}/tab/expenses/${expenseId}/unsettle`,
+        { method: 'POST' },
+      )
+      setOverview(data)
+      toast.success('Marked as pending again')
+      refreshNavBadges()
+    } catch (e) {
+      toastUserError(e, "Couldn't reopen that expense. Try again.")
+    }
+  }
+
+  const deleteExpense = async (expenseId: string) => {
+    if (!groupId) return
+    try {
+      const data = await apiJson<TabOverviewDto>(
+        `/groups/${groupId}/tab/expenses/${expenseId}`,
+        { method: 'DELETE' },
+      )
+      setOverview(data)
+      toast.success('Expense removed')
+      refreshNavBadges()
+    } catch (e) {
+      toastUserError(e, "Couldn't remove that expense. Try again.")
+    }
+  }
+
+  const settleAll = async () => {
+    if (!groupId) return
+    try {
+      const data = await apiJson<TabOverviewDto>(`/groups/${groupId}/tab/settle-all`, {
+        method: 'POST',
+      })
+      setOverview(data)
+      toast.success('All expenses marked settled — everyone is square')
+      refreshNavBadges()
+    } catch (e) {
+      toastUserError(e, "Couldn't settle everything. Try again.")
+    }
+  }
+
+  const settleWith = async (otherSub: string) => {
+    if (!groupId) return
+    try {
+      const data = await apiJson<TabOverviewDto>(
+        `/groups/${groupId}/tab/settle-with/${encodeURIComponent(otherSub)}`,
+        { method: 'POST' },
+      )
+      setOverview(data)
+      toast.success('Settled up with that person')
+      refreshNavBadges()
+    } catch (e) {
+      toastUserError(e, "Couldn't record that settlement. Try again.")
+    }
+  }
+
+  const clearTab = async () => {
+    if (!groupId) return
+    try {
+      const data = await apiJson<TabOverviewDto>(`/groups/${groupId}/tab/expenses`, {
+        method: 'DELETE',
+      })
+      setOverview(data)
+      toast.success('Tab reset — all expenses removed')
+      refreshNavBadges()
+    } catch (e) {
+      toastUserError(e, "Couldn't reset the tab. Try again.")
+    }
+  }
+
   const myNet = overview?.my_net ?? 0
   const isOwed = myNet > 0.005
   const isOwe = myNet < -0.005
 
+  const expenses = overview?.expenses ?? []
+  const balances = overview?.balances ?? []
+  const members = overview?.members ?? []
+
   const pendingCount = useMemo(
-    () => overview?.expenses.filter((e) => !e.settled).length ?? 0,
-    [overview],
+    () => expenses.filter((e) => !e.settled).length,
+    [expenses],
   )
 
   return (
@@ -348,58 +439,96 @@ export default function TabPage() {
                   </div>
                 </div>
 
-                {overview.balances.length > 0 ? (
-                  <div className="mt-6 flex flex-wrap justify-center gap-2">
-                    {overview.balances.slice(0, 6).map((person) => (
-                      <div
-                        key={person.user_sub}
-                        className={cn(
-                          'flex items-center gap-2 rounded-full px-3 py-1.5 text-xs',
-                          person.net > 0
-                            ? 'bg-emerald-500/10 text-emerald-500'
-                            : 'bg-rose-500/10 text-rose-500',
-                        )}
-                      >
-                        <Avatar className="h-5 w-5">
-                          <AvatarFallback className="text-[9px]">
-                            {(person.display_name ?? person.user_sub).slice(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span>
-                          {person.display_name ?? subMonogram(person.user_sub)}:{' '}
-                          {person.net > 0 ? '+' : person.net < 0 ? '−' : ''}
-                          {formatRupees(Math.abs(person.net), {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0,
-                          })}
-                        </span>
-                      </div>
-                    ))}
+                {balances.length > 0 ? (
+                  <div className="mt-6 space-y-2">
+                    {balances.map((person) => {
+                      const name = person.display_name ?? subMonogram(person.user_sub)
+                      const theyOweYou = person.net > 0
+                      return (
+                        <div
+                          key={person.user_sub}
+                          className={cn(
+                            'flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs',
+                            theyOweYou
+                              ? 'border-emerald-500/30 bg-emerald-500/5'
+                              : 'border-rose-500/30 bg-rose-500/5',
+                          )}
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
+                            <UserAvatar
+                              className="h-6 w-6 shrink-0"
+                              fallbackClassName="text-[9px]"
+                              pictureUrl={person.picture_url}
+                              displayName={person.display_name}
+                              userSub={person.user_sub}
+                            />
+                            <span className="truncate">
+                              {theyOweYou
+                                ? `${name} owes you ${formatRupees(person.net, { maximumFractionDigits: 0 })}`
+                                : `You owe ${name} ${formatRupees(Math.abs(person.net), { maximumFractionDigits: 0 })}`}
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 shrink-0 text-[11px]"
+                            onClick={() => void settleWith(person.user_sub)}
+                          >
+                            <HandCoins className="mr-1 h-3 w-3" />
+                            Settled
+                          </Button>
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : null}
               </CardContent>
             </Card>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
-                className="flex-1"
+                className="flex-1 min-w-[8rem]"
                 size="sm"
                 type="button"
-                disabled={!overview.balances.length}
-                onClick={() => toast.info('Settle up is coming soon — mark individual expenses settled for now.')}
+                disabled={pendingCount === 0}
+                onClick={() => void settleAll()}
               >
-                Settle up
+                <Check className="mr-1.5 h-3.5 w-3.5" />
+                Settle all
               </Button>
-              <Button
-                variant="outline"
-                className="flex-1"
-                size="sm"
-                type="button"
-                onClick={() => toast.info('Requests coming soon.')}
-              >
-                Request
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="flex-1 min-w-[8rem] text-destructive hover:text-destructive"
+                    size="sm"
+                    type="button"
+                    disabled={expenses.length === 0}
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    Reset tab
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Reset this tab?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This permanently deletes every expense in this group. Balances go back to zero.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() => void clearTab()}
+                    >
+                      Delete all expenses
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
 
             <section>
@@ -410,10 +539,10 @@ export default function TabPage() {
                 </Badge>
               </div>
               <div className="space-y-2">
-                {overview.expenses.length === 0 ? (
+                {expenses.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No expenses yet. Tap + to add one.</p>
                 ) : (
-                  overview.expenses.map((transaction) => {
+                  expenses.map((transaction) => {
                     const Icon = categoryIcons[transaction.category] ?? Utensils
                     return (
                       <Card
@@ -454,17 +583,38 @@ export default function TabPage() {
                               {formatRupees(transaction.share_amount)}/person
                             </p>
                           </div>
-                          {!transaction.settled ? (
+                          <div className="flex shrink-0 flex-col gap-1">
+                            {transaction.settled ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-[11px]"
+                                type="button"
+                                onClick={() => void unsettleExpense(transaction.id)}
+                              >
+                                Reopen
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-[11px]"
+                                type="button"
+                                onClick={() => void settleExpense(transaction.id)}
+                              >
+                                Settle
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="ghost"
-                              className="h-8 shrink-0 px-3 text-xs"
+                              className="h-7 px-2 text-[11px] text-destructive hover:text-destructive"
                               type="button"
-                              onClick={() => void settleExpense(transaction.id)}
+                              onClick={() => void deleteExpense(transaction.id)}
                             >
-                              Settle
+                              <Trash2 className="h-3 w-3" />
                             </Button>
-                          ) : null}
+                          </div>
                         </CardContent>
                       </Card>
                     )
@@ -482,7 +632,7 @@ export default function TabPage() {
           setDrawerOpen(o)
           if (o && overview) {
             resetDrawer()
-            setParticipantPick(new Set(overview.members.map((m) => m.user_sub)))
+            setParticipantPick(new Set(members.map((m) => m.user_sub)))
             setSplitEveryone(true)
             setPaidBySub(overview.viewer_sub)
           }
@@ -546,7 +696,7 @@ export default function TabPage() {
                   </SelectContent>
                 </Select>
               </div>
-              {overview && overview.members.length > 0 ? (
+              {overview && members.length > 0 ? (
                 <div className="space-y-2">
                   <Label>Paid by</Label>
                   <Select value={paidBySub ?? overview.viewer_sub} onValueChange={setPaidBySub}>
@@ -554,7 +704,7 @@ export default function TabPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {overview.members.map((m) => (
+                      {members.map((m) => (
                         <SelectItem key={m.user_sub} value={m.user_sub}>
                           {m.display_name ?? subMonogram(m.user_sub)}
                         </SelectItem>
@@ -576,7 +726,7 @@ export default function TabPage() {
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">Tap members to include (min 2)</Label>
                   <div className="flex flex-wrap gap-2">
-                    {overview.members.map((m) => {
+                    {members.map((m) => {
                       const on = participantPick.has(m.user_sub)
                       return (
                         <Badge

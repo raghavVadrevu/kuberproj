@@ -1,31 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { confirmSignUp, resendSignUpCode, signUp } from 'aws-amplify/auth'
-import { ImageIcon, KeyRound, Mail, Sparkles, User } from 'lucide-react'
+import { ImageIcon, KeyRound, Mail, Sparkles, User, X } from 'lucide-react'
 
+import { UserAvatar } from '@/components/UserAvatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import ConfirmEmailCard from '@/components/auth/ConfirmEmailCard'
 import AuthHeroLayout from '@/components/auth/AuthHeroLayout'
 import { isCognitoConfigured } from '@/lib/cognito-config'
-import { formatCognitoError } from '@/lib/cognito-errors'
+import {
+  formatCognitoError,
+  getPasswordValidationError,
+  isUsernameExistsError,
+  PASSWORD_REQUIREMENTS_HELP,
+} from '@/lib/cognito-errors'
+import { prepareAvatarFile, uploadAvatarFile, validateAvatarFile } from '@/lib/uploads'
 
 type Step = 'form' | 'confirm' | 'done'
-
-function isValidOptionalPictureUrl(raw: string): boolean {
-  const t = raw.trim()
-  if (!t) return true
-  try {
-    const u = new URL(t)
-    return u.protocol === 'http:' || u.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-const VERIFICATION_SPAM_HINT =
-  "If you don't see the email, check your spam or junk folder."
 
 export default function SignupPage() {
   const [step, setStep] = useState<Step>('form')
@@ -35,13 +29,56 @@ export default function SignupPage() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
-  const [pictureUrl, setPictureUrl] = useState('')
+  const [pictureFile, setPictureFile] = useState<File | null>(null)
+  const [picturePreviewUrl, setPicturePreviewUrl] = useState<string | null>(null)
+  const [picturePreparing, setPicturePreparing] = useState(false)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
 
   const [confirmUsername, setConfirmUsername] = useState('')
   const [confirmCode, setConfirmCode] = useState('')
   const [resendMessage, setResendMessage] = useState<string | null>(null)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!pictureFile) {
+      setPicturePreviewUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(pictureFile)
+    setPicturePreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [pictureFile])
+
+  const clearPicture = () => {
+    setPictureFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handlePictureChange = (file: File | null) => {
+    setError(null)
+    if (!file) {
+      clearPicture()
+      return
+    }
+    const validationError = validateAvatarFile(file)
+    if (validationError) {
+      setError(validationError)
+      clearPicture()
+      return
+    }
+    setPicturePreparing(true)
+    void prepareAvatarFile(file)
+      .then((prepared) => {
+        setPictureFile(prepared)
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : 'Could not process this image.')
+        clearPicture()
+      })
+      .finally(() => setPicturePreparing(false))
+  }
 
   const handleSubmitForm = async () => {
     setError(null)
@@ -59,17 +96,19 @@ export default function SignupPage() {
       setError('Passwords must match.')
       return
     }
-    if (password.length < 8) {
-      setError('Use at least 8 characters for your password.')
-      return
-    }
-    if (!isValidOptionalPictureUrl(pictureUrl)) {
-      setError('Profile picture must be a valid http(s) URL, or leave it empty.')
+    const passwordError = getPasswordValidationError(password)
+    if (passwordError) {
+      setError(passwordError)
       return
     }
 
     setBusy(true)
     try {
+      let uploadedPictureUrl: string | null = null
+      if (pictureFile) {
+        uploadedPictureUrl = await uploadAvatarFile(pictureFile)
+      }
+
       const displayName = `${firstName.trim()} ${lastName.trim()}`.trim()
       const attrs: Record<string, string> = {
         email: emailNorm,
@@ -77,8 +116,7 @@ export default function SignupPage() {
         family_name: lastName.trim(),
         name: displayName,
       }
-      const pic = pictureUrl.trim()
-      if (pic) attrs.picture = pic
+      if (uploadedPictureUrl) attrs.picture = uploadedPictureUrl
 
       const result = await signUp({
         username: emailNorm,
@@ -102,6 +140,24 @@ export default function SignupPage() {
 
       setError('Unexpected response from Cognito. Check required attributes in the user pool.')
     } catch (e) {
+      if (isUsernameExistsError(e)) {
+        setConfirmUsername(emailNorm)
+        setConfirmCode('')
+        setResendMessage(null)
+        setStep('confirm')
+        setError(null)
+        try {
+          await resendSignUpCode({ username: emailNorm })
+          setResendMessage(
+            'An account with this email already exists. If you have not verified yet, we sent a new code.',
+          )
+        } catch {
+          setResendMessage(
+            'An account with this email already exists. Enter your verification code, or resend one below.',
+          )
+        }
+        return
+      }
       setError(formatCognitoError(e))
     } finally {
       setBusy(false)
@@ -184,7 +240,7 @@ export default function SignupPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-center text-sm text-muted-foreground">
             <p>
-              Your profile (name, email, optional picture URL) is stored in Cognito. We emailed a verification code during
+              Your profile (name, email, optional picture) is stored in Cognito. We emailed a verification code during
               sign-up; password stays with Cognito only.
             </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
@@ -204,44 +260,28 @@ export default function SignupPage() {
   if (step === 'confirm') {
     return (
       <AuthHeroLayout>
-        <Card className="w-full glass border-primary/20 shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-base">Confirm your email</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Enter the verification code sent to{' '}
-              <span className="font-medium text-foreground">{confirmUsername}</span>.
-            </p>
-            <p className="text-xs text-muted-foreground">{VERIFICATION_SPAM_HINT}</p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {resendMessage ? <p className="text-xs text-emerald-600 dark:text-emerald-400">{resendMessage}</p> : null}
-            <div className="space-y-2">
-              <Label htmlFor="code">Verification code</Label>
-              <Input
-                id="code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                value={confirmCode}
-                onChange={(e) => setConfirmCode(e.target.value)}
-                className="font-mono"
-              />
-            </div>
-            {error ? (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            ) : null}
-            <Button className="w-full" disabled={busy} onClick={() => void handleConfirm()}>
-              {busy ? 'Checking…' : 'Confirm account'}
-            </Button>
-            <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={() => void handleResend()}>
-              Resend code
-            </Button>
-            <Button type="button" variant="ghost" className="w-full" disabled={busy} onClick={() => setStep('form')}>
-              Back to form
-            </Button>
-          </CardContent>
-        </Card>
+        <ConfirmEmailCard
+          email={confirmUsername}
+          confirmCode={confirmCode}
+          onConfirmCodeChange={setConfirmCode}
+          busy={busy}
+          error={error}
+          resendMessage={resendMessage}
+          onConfirm={() => void handleConfirm()}
+          onResend={() => void handleResend()}
+          onBack={() => {
+            setStep('form')
+            setError(null)
+            setResendMessage(null)
+          }}
+          backLabel="Back to form"
+        />
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          Already verified?{' '}
+          <Link to="/login" className="text-primary underline-offset-4 hover:underline">
+            Log in
+          </Link>
+        </p>
       </AuthHeroLayout>
     )
   }
@@ -300,18 +340,55 @@ export default function SignupPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="picture">Profile picture URL (optional)</Label>
-            <div className="relative">
-              <ImageIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="picture"
-                className="pl-9"
-                placeholder="https://…"
-                value={pictureUrl}
-                onChange={(e) => setPictureUrl(e.target.value)}
+            <Label htmlFor="picture">Profile picture (optional)</Label>
+            <div className="flex items-center gap-4">
+              <UserAvatar
+                className="h-16 w-16 rounded-2xl border border-border/80 shrink-0"
+                fallbackClassName="rounded-2xl bg-primary/15 text-sm font-semibold text-primary"
+                pictureUrl={picturePreviewUrl}
+                displayName={`${firstName} ${lastName}`.trim()}
               />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <input
+                  ref={fileInputRef}
+                  id="picture"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  capture="user"
+                  className="sr-only"
+                  onChange={(e) => handlePictureChange(e.target.files?.[0] ?? null)}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={busy || picturePreparing}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <ImageIcon className="h-4 w-4" />
+                    {pictureFile ? 'Change photo' : 'Upload photo'}
+                  </Button>
+                  {pictureFile ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1 text-muted-foreground"
+                      disabled={busy}
+                      onClick={clearPicture}
+                    >
+                      <X className="h-4 w-4" />
+                      Remove
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  JPEG, PNG, WebP, or GIF. Large photos are compressed to 2 MB before upload.
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">Host the image in S3 or elsewhere; Cognito only stores the URL.</p>
           </div>
 
           <div className="space-y-2">
@@ -327,6 +404,7 @@ export default function SignupPage() {
                 autoComplete="new-password"
               />
             </div>
+            <p className="text-xs text-muted-foreground">{PASSWORD_REQUIREMENTS_HELP}</p>
           </div>
 
           <div className="space-y-2">
@@ -347,7 +425,7 @@ export default function SignupPage() {
           ) : null}
 
           <Button className="w-full" disabled={busy} onClick={() => void handleSubmitForm()}>
-            {busy ? 'Creating account…' : 'Sign up'}
+            {busy ? (pictureFile ? 'Uploading & creating account…' : 'Creating account…') : 'Sign up'}
           </Button>
 
           <p className="text-center text-sm text-muted-foreground">

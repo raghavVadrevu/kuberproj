@@ -15,6 +15,7 @@ from app.schemas import ChatMessageOut
 from app.services.group_context import build_group_activity_context
 from app.services.llm_service import (
     CHAT_CONTEXT_LIMIT,
+    CHAT_FALLBACK_REPLY,
     message_mentions_ai,
     stream_chat_response,
 )
@@ -38,6 +39,24 @@ def list_chat_messages(
         return fetch_chat_messages(conn, group_id, limit=limit)
 
 
+@router.delete(
+    "/api/groups/{group_id}/chat/messages",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_all_chat_messages(
+    group_id: UUID,
+    user_sub: Annotated[str, Depends(get_current_user_sub)],
+) -> None:
+    """Permanently delete all chat messages for this group."""
+    with get_connection() as conn:
+        assert_group_member(conn, group_id, user_sub)
+        conn.execute(
+            "DELETE FROM group_chat_messages WHERE group_id = %s::uuid",
+            (str(group_id),),
+        )
+        conn.commit()
+
+
 async def _stream_ai_to_group(
     group_id: str,
     group_uuid: UUID,
@@ -46,30 +65,47 @@ async def _stream_ai_to_group(
     stream_id = str(uuid4())
     full_content: list[str] = []
 
-    with get_connection() as conn:
-        history = fetch_chat_messages(
-            conn, group_uuid, limit=CHAT_CONTEXT_LIMIT,
-        )
-        group_activity = build_group_activity_context(conn, group_uuid, viewer_sub)
+    try:
+        with get_connection() as conn:
+            history = fetch_chat_messages(
+                conn, group_uuid, limit=CHAT_CONTEXT_LIMIT,
+            )
+            group_activity = build_group_activity_context(conn, group_uuid, viewer_sub)
 
-    async for chunk in stream_chat_response(
-        history=history,
-        group_activity=group_activity,
-    ):
-        full_content.append(chunk)
+        async for chunk in stream_chat_response(
+            history=history,
+            group_activity=group_activity,
+        ):
+            full_content.append(chunk)
+            await chat_manager.broadcast_json(
+                group_id,
+                {
+                    "type": "ai_token",
+                    "stream_id": stream_id,
+                    "content": chunk,
+                },
+            )
+    except Exception:
+        logger.exception("AI stream failed for group=%s", group_id)
+        fallback = CHAT_FALLBACK_REPLY
+        full_content = [fallback]
         await chat_manager.broadcast_json(
             group_id,
             {
                 "type": "ai_token",
                 "stream_id": stream_id,
-                "content": chunk,
+                "content": fallback,
             },
         )
 
-    text = "".join(full_content)
-    with get_connection() as conn:
-        msg = insert_chat_message(conn, group_uuid, AI_SENDER_SUB, text)
-        conn.commit()
+    text = "".join(full_content).strip() or CHAT_FALLBACK_REPLY
+    try:
+        with get_connection() as conn:
+            msg = insert_chat_message(conn, group_uuid, AI_SENDER_SUB, text)
+            conn.commit()
+    except Exception:
+        logger.exception("Failed to save AI message for group=%s", group_id)
+        return
 
     await chat_manager.broadcast_json(
         group_id,

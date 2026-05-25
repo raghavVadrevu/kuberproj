@@ -80,6 +80,15 @@ export type UserProfileDto = {
   sub: string
   email: string | null
   display_name: string
+  given_name?: string | null
+  family_name?: string | null
+  picture_url?: string | null
+}
+
+export type MeUpdateDto = {
+  given_name: string
+  family_name: string
+  picture_url?: string | null
 }
 
 export type FriendRequestDto = {
@@ -90,8 +99,10 @@ export type FriendRequestDto = {
   created_at: string
   from_display_name?: string | null
   from_email?: string | null
+  from_picture_url?: string | null
   to_display_name?: string | null
   to_email?: string | null
+  to_picture_url?: string | null
 }
 
 export type FriendRequestCreateResultDto = {
@@ -113,6 +124,7 @@ export type GroupMemberDto = {
   joined_at: string
   display_name?: string | null
   email?: string | null
+  picture_url?: string | null
 }
 
 export type GroupDetailDto = GroupDto & { members: GroupMemberDto[] }
@@ -157,6 +169,7 @@ export type AvailabilityDto = {
 export type TabMemberLiteDto = {
   user_sub: string
   display_name?: string | null
+  picture_url?: string | null
 }
 
 export type ExpenseOutDto = {
@@ -167,6 +180,7 @@ export type ExpenseOutDto = {
   category: string
   paid_by_sub: string
   paid_by_display_name?: string | null
+  paid_by_picture_url?: string | null
   participant_subs: string[]
   participant_count: number
   share_amount: number
@@ -177,6 +191,7 @@ export type ExpenseOutDto = {
 export type TabBalanceRowDto = {
   user_sub: string
   display_name?: string | null
+  picture_url?: string | null
   net: number
 }
 

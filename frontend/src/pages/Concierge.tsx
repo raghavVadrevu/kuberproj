@@ -1,12 +1,23 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Send, Sparkles, Users } from 'lucide-react'
+import { Sparkles, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { PageLoader } from '@/components/ui/page-loader'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import ChatMessageInput from '@/components/chat/ChatMessageInput'
+import { UserAvatar } from '@/components/UserAvatar'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { GroupChatClient } from '@/lib/group-chat'
 import {
@@ -33,17 +44,6 @@ const TYPING_STALE_MS = 3500
 const TYPING_SEND_DEBOUNCE_MS = 400
 const TYPING_STOP_MS = 2000
 
-function initialsFromName(name: string | null | undefined, sub: string): string {
-  if (name?.trim()) {
-    const p = name.trim().split(/\s+/)
-    if (p.length >= 2) return (p[0]![0] + p[1]![0]).toUpperCase()
-    return name.slice(0, 2).toUpperCase()
-  }
-  const alnum = sub.replace(/[^a-zA-Z0-9]/g, '')
-  if (alnum.length >= 2) return alnum.slice(0, 2).toUpperCase()
-  return sub.slice(0, 2).toUpperCase()
-}
-
 function memberLabel(m: GroupMemberDto): string {
   return m.display_name?.trim() || m.email?.split('@')[0] || 'Member'
 }
@@ -63,6 +63,7 @@ export default function ConciergePage() {
   const [members, setMembers] = useState<GroupMemberDto[]>([])
   const [meSub, setMeSub] = useState<string | null>(null)
   const [meDisplayName, setMeDisplayName] = useState<string | null>(null)
+  const [mePictureUrl, setMePictureUrl] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessageDto[]>([])
   const [streaming, setStreaming] = useState<Record<string, string>>({})
   const [typingAt, setTypingAt] = useState<Record<string, number>>({})
@@ -135,6 +136,15 @@ export default function ConciergePage() {
     }
     return map
   }, [members, meSub, meDisplayName])
+
+  const memberPictureBySub = useMemo(() => {
+    const map = new Map<string, string | null>()
+    for (const m of members) {
+      map.set(m.user_sub, m.picture_url ?? null)
+    }
+    if (meSub && mePictureUrl) map.set(meSub, mePictureUrl)
+    return map
+  }, [members, meSub, mePictureUrl])
 
   const resolveSenderDisplayName = useCallback(
     (
@@ -221,6 +231,7 @@ export default function ConciergePage() {
       ])
       setMeSub(me.sub)
       setMeDisplayName(me.display_name)
+      setMePictureUrl(me.picture_url ?? null)
       setGroups(groupList)
       const gid = resolveActiveGroupId(groupList)
       setGroupId(gid)
@@ -390,8 +401,8 @@ export default function ConciergePage() {
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = (e?: React.FormEvent) => {
+    e?.preventDefault()
     if (showMentions && mentionSuggestions[mentionIndex]) {
       pickMention(mentionSuggestions[mentionIndex]!)
       return
@@ -399,7 +410,24 @@ export default function ConciergePage() {
     void handleSend(inputValue)
   }
 
+  const clearAllMessages = async () => {
+    if (!groupId) return
+    try {
+      await apiJson(`/groups/${groupId}/chat/messages`, { method: 'DELETE' })
+      setMessages([])
+      setStreaming({})
+      toast.success('Chat cleared')
+    } catch (e) {
+      toastUserError(e, "Couldn't clear messages. Try again.")
+    }
+  }
+
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !showMentions) {
+      e.preventDefault()
+      handleSubmit()
+      return
+    }
     if (!showMentions) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -449,12 +477,39 @@ export default function ConciergePage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] lg:h-[calc(100vh-5rem)] min-h-0 overflow-hidden">
-      <header className="shrink-0 pb-3 border-b border-border">
-        <p className="text-xs text-muted-foreground">Group chat</p>
-        <h1 className="text-lg font-semibold truncate">{groupName ?? 'Your group'}</h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Tag <span className="font-medium text-foreground">@huddle</span> to ask the AI
-        </p>
+      <header className="shrink-0 flex items-start justify-between gap-2 pb-3 border-b border-border">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">Group chat</p>
+          <h1 className="text-lg font-semibold truncate">{groupName ?? 'Your group'}</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Tag <span className="font-medium text-foreground">@huddle</span> to ask the AI
+          </p>
+        </div>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="ghost" size="sm" className="shrink-0 text-muted-foreground">
+              <Trash2 className="h-4 w-4 mr-1" />
+              Clear
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Clear all messages?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently deletes every message in this group chat from the database.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => void clearAllMessages()}
+              >
+                Delete all
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </header>
 
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden no-scrollbar">
@@ -476,6 +531,7 @@ export default function ConciergePage() {
                   content={item.content}
                   timestamp={null}
                   senderSub=""
+                  pictureUrl={null}
                 />
               )
             }
@@ -495,6 +551,7 @@ export default function ConciergePage() {
                 content={item.content}
                 timestamp={item.created_at}
                 senderSub={item.sender_sub}
+                pictureUrl={memberPictureBySub.get(item.sender_sub) ?? null}
               />
             )
           })}
@@ -509,7 +566,7 @@ export default function ConciergePage() {
         </div>
       </div>
 
-      <footer className="shrink-0 border-t border-border bg-card/80 backdrop-blur-sm py-3">
+      <footer className="shrink-0 pt-2 pb-1">
         <form onSubmit={handleSubmit} className="relative">
           {showMentions && (
             <ul
@@ -530,13 +587,15 @@ export default function ConciergePage() {
                     }}
                   >
                     {opt.kind === 'ai' ? (
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary to-accent text-primary-foreground">
-                        <Sparkles className="h-3.5 w-3.5" />
-                      </span>
+                      <UserAvatar className="h-7 w-7" isAi />
                     ) : (
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                        {initialsFromName(opt.label, opt.id)}
-                      </span>
+                      <UserAvatar
+                        className="h-7 w-7"
+                        fallbackClassName="bg-muted text-xs font-medium"
+                        pictureUrl={memberPictureBySub.get(opt.id)}
+                        displayName={opt.label}
+                        userSub={opt.id}
+                      />
                     )}
                     <span className="font-medium">{opt.label}</span>
                     <span className="text-muted-foreground text-xs ml-auto">
@@ -548,41 +607,28 @@ export default function ConciergePage() {
             </ul>
           )}
 
-          <div className="flex gap-2">
-            <div className="flex-1 relative">
-              <Input
-                ref={inputRef}
-                value={inputValue}
-                onChange={(e) => handleInputChange(e.target.value)}
-                onKeyDown={handleInputKeyDown}
-                onKeyUp={syncInputCursor}
-                onClick={syncInputCursor}
-                onBlur={stopTypingSignal}
-                placeholder="Message your group… @huddle for AI"
-                className="pr-12 h-12 rounded-xl bg-background"
-                disabled={sending}
-                autoComplete="off"
-              />
-              <Button
-                type="submit"
-                size="icon"
-                disabled={!inputValue.trim() || sending}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 rounded-lg"
-              >
-                <Send className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
+          <ChatMessageInput
+            inputRef={inputRef}
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleInputKeyDown}
+            onKeyUp={syncInputCursor}
+            onClick={syncInputCursor}
+            onBlur={stopTypingSignal}
+            disabled={sending}
+            placeholder="Message your group… @huddle for AI"
+            onSubmit={() => handleSubmit()}
+          />
         </form>
-        {groups.length > 1 && (
-          <p className="text-[11px] text-muted-foreground mt-2 px-0.5">
+        {groups.length > 1 ? (
+          <p className="text-[11px] text-muted-foreground mt-2">
             Active group from Pulse. Switch on{' '}
             <Link to="/groups" className="underline underline-offset-2">
               Groups
             </Link>
             .
           </p>
-        )}
+        ) : null}
       </footer>
     </div>
   )
@@ -595,6 +641,7 @@ function ChatBubble({
   content,
   timestamp,
   senderSub,
+  pictureUrl,
 }: {
   isOwn: boolean
   isAi: boolean
@@ -602,28 +649,18 @@ function ChatBubble({
   content: string
   timestamp: string | null
   senderSub: string
+  pictureUrl: string | null
 }) {
   return (
     <div className={cn('flex gap-3', isOwn && 'flex-row-reverse')}>
-      <Avatar
-        className={cn(
-          'w-8 h-8 shrink-0',
-          isAi && 'bg-gradient-to-br from-primary to-accent',
-        )}
-      >
-        <AvatarFallback
-          className={cn(
-            'text-xs',
-            isAi && 'bg-transparent text-primary-foreground',
-          )}
-        >
-          {isAi ? (
-            <Sparkles className="w-4 h-4" />
-          ) : (
-            initialsFromName(displayName, senderSub)
-          )}
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar
+        className="w-8 h-8 shrink-0"
+        fallbackClassName="text-xs"
+        isAi={isAi}
+        pictureUrl={pictureUrl}
+        displayName={displayName}
+        userSub={senderSub}
+      />
       <div
         className={cn(
           'flex-1 max-w-[80%]',

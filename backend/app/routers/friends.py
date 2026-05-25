@@ -22,7 +22,7 @@ def _profile_map(conn, subs: list[str]) -> dict[str, dict]:
         return {}
     rows = conn.execute(
         """
-        SELECT sub, email, display_name FROM user_profiles
+        SELECT sub, email, display_name, picture_url FROM user_profiles
         WHERE sub = ANY(%s)
         """,
         (subs,),
@@ -49,8 +49,10 @@ def _enrich_requests(conn, rows: list) -> list[FriendRequestOut]:
                 created_at=r["created_at"].isoformat(),
                 from_display_name=fs.get("display_name"),
                 from_email=fs.get("email"),
+                from_picture_url=fs.get("picture_url"),
                 to_display_name=ts.get("display_name"),
                 to_email=ts.get("email"),
+                to_picture_url=ts.get("picture_url"),
             )
         )
     return out
@@ -78,7 +80,12 @@ def list_friends(user_sub: Annotated[str, Depends(get_current_user_sub)]) -> lis
             (friend_subs,),
         ).fetchall()
     return [
-        UserProfileOut(sub=p["sub"], email=p["email"], display_name=p["display_name"] or "Member")
+        UserProfileOut(
+            sub=p["sub"],
+            email=p["email"],
+            display_name=p["display_name"] or "Member",
+            picture_url=p.get("picture_url"),
+        )
         for p in profs
     ]
 

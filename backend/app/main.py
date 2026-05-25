@@ -16,6 +16,7 @@ from app.routers import (
     group_vault,
     groups,
     me,
+    uploads,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ app.add_middleware(
 )
 
 app.include_router(me.router)
+app.include_router(uploads.router)
 app.include_router(friends.router)
 app.include_router(groups.router)
 app.include_router(group_polls.router)
