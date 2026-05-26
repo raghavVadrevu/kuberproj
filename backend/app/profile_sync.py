@@ -1,3 +1,6 @@
+from app.profile_reclaim import reclaim_stale_profile_by_email
+
+
 def names_from_payload(payload: dict) -> tuple[str, str]:
     given = str(payload.get("given_name") or "").strip()
     family = str(payload.get("family_name") or "").strip()
@@ -32,6 +35,10 @@ def upsert_profile_from_token(conn, sub: str, payload: dict) -> None:
     email = email_raw.strip().lower() if isinstance(email_raw, str) and email_raw.strip() else None
     display = display_from_payload(payload)
     picture = picture_from_payload(payload)
+
+    if email:
+        reclaim_stale_profile_by_email(conn, sub, email)
+
     conn.execute(
         """
         INSERT INTO user_profiles (sub, email, display_name, picture_url)
