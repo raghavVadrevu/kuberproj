@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Hub } from 'aws-amplify/utils'
 import { Link, useNavigate } from 'react-router-dom'
-import { fetchAuthSession, getCurrentUser, signOut } from 'aws-amplify/auth'
+import { fetchAuthSession, signOut } from 'aws-amplify/auth'
 import {
   Archive,
   Bell,
@@ -91,6 +92,16 @@ export default function ProfilePage() {
   const [picturePreparing, setPicturePreparing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const applyProfileFromSummary = useCallback((summary: CognitoProfileSummary) => {
+    const first = summary.givenName || splitDisplayName(summary.displayName).first
+    const last = summary.familyName || splitDisplayName(summary.displayName).last
+    setFirstName(first)
+    setLastName(last)
+    setPicturePreviewUrl(summary.pictureUrl)
+    setPictureFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [])
+
   const applyProfile = useCallback((me: UserProfileDto, summary: CognitoProfileSummary) => {
     const first =
       me.given_name?.trim() ||
@@ -115,26 +126,40 @@ export default function ProfilePage() {
     }
     setSessionLoading(true)
     try {
-      await getCurrentUser()
-      const authSession = await fetchAuthSession()
+      const authSession = await fetchAuthSession({ forceRefresh: true })
       const payload = authSession.tokens?.idToken?.payload
       if (!payload) {
         setSession(null)
         return
       }
       const summary = summaryFromIdToken(payload)
-      const me = await apiJson<UserProfileDto>('/me')
       setSession(summary)
-      applyProfile(me, summary)
+      applyProfileFromSummary(summary)
+
+      try {
+        const me = await apiJson<UserProfileDto>('/me')
+        applyProfile(me, summary)
+      } catch (e) {
+        toastUserError(e, "Couldn't sync your profile with the server. You can still edit and save.")
+      }
     } catch {
       setSession(null)
     } finally {
       setSessionLoading(false)
     }
-  }, [applyProfile])
+  }, [applyProfile, applyProfileFromSummary])
 
   useEffect(() => {
     void loadProfile()
+  }, [loadProfile])
+
+  useEffect(() => {
+    const remove = Hub.listen('auth', ({ payload }) => {
+      if (payload.event === 'signedIn') {
+        void loadProfile()
+      }
+    })
+    return remove
   }, [loadProfile])
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { confirmSignUp, resendSignUpCode, signUp } from 'aws-amplify/auth'
+import { Link, useNavigate } from 'react-router-dom'
+import { confirmSignUp, resendSignUpCode, signIn, signUp } from 'aws-amplify/auth'
 import { ImageIcon, KeyRound, Mail, Sparkles, User, X } from 'lucide-react'
 
 import { UserAvatar } from '@/components/UserAvatar'
@@ -22,6 +22,7 @@ import { prepareAvatarFile, uploadAvatarFile, validateAvatarFile } from '@/lib/u
 type Step = 'form' | 'confirm' | 'done'
 
 export default function SignupPage() {
+  const navigate = useNavigate()
   const [step, setStep] = useState<Step>('form')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -177,6 +178,17 @@ export default function SignupPage() {
         username: confirmUsername,
         confirmationCode: code,
       })
+      if (password) {
+        try {
+          const result = await signIn({ username: confirmUsername, password })
+          if (result.isSignedIn) {
+            navigate('/profile', { replace: true })
+            return
+          }
+        } catch {
+          /* show done screen with login link */
+        }
+      }
       setStep('done')
     } catch (e) {
       setError(formatCognitoError(e))
@@ -245,10 +257,12 @@ export default function SignupPage() {
             </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
               <Button asChild className="flex-1 sm:flex-none">
-                <Link to="/login">Log in</Link>
+                <Link to="/login" state={{ from: '/profile' }}>
+                  Log in
+                </Link>
               </Button>
               <Button variant="outline" asChild className="flex-1 sm:flex-none">
-                <Link to="/">Continue to app</Link>
+                <Link to="/profile">Continue to profile</Link>
               </Button>
             </div>
           </CardContent>
