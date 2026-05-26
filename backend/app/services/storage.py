@@ -1,6 +1,5 @@
 import os
 import uuid
-
 import boto3
 from botocore.client import Config
 
@@ -29,30 +28,30 @@ def _public_base_url() -> str:
     return base
 
 
-def _presign_endpoint() -> str | None:
-    """Endpoint used when signing URLs the browser will call (must match Host header)."""
-    public = os.environ.get("S3_PUBLIC_ENDPOINT", "").strip()
-    if public:
-        return public.rstrip("/")
-    internal = os.environ.get("S3_ENDPOINT", "").strip()
-    return internal.rstrip("/") if internal else None
-
-
-def get_s3_client(*, endpoint_url: str | None = None):
+def get_s3_client():
+    """
+    Instantiates a cleanly routed S3 Client.
+    Safely handles empty environment string variations in Fargate vs MinIO.
+    """
+    # Normalize endpoint string checking
+    endpoint = os.environ.get("S3_ENDPOINT", "").strip()
+    
     kwargs: dict = {
         "service_name": "s3",
-        "region_name": os.environ.get("S3_REGION", "us-east-1"),
+        "region_name": os.environ.get("S3_REGION", "ap-south-1"),
     }
-    access_key = os.environ.get("S3_ACCESS_KEY")
-    secret_key = os.environ.get("S3_SECRET_KEY")
+
+    # Catch local MinIO authentication credentials if provided
+    access_key = os.environ.get("S3_ACCESS_KEY", "").strip()
+    secret_key = os.environ.get("S3_SECRET_KEY", "").strip()
     if access_key and secret_key:
         kwargs["aws_access_key_id"] = access_key
         kwargs["aws_secret_access_key"] = secret_key
 
-    resolved_endpoint = endpoint_url if endpoint_url is not None else os.environ.get("S3_ENDPOINT")
-    if resolved_endpoint:
-        kwargs["endpoint_url"] = resolved_endpoint.rstrip("/")
-
+    # If S3_ENDPOINT contains a genuine local routing string, configure it
+    if endpoint and endpoint.lower() not in ("none", "null", ""):
+        kwargs["endpoint_url"] = endpoint.rstrip("/")
+        
     s3_config = Config(
         signature_version="s3v4",
         s3={"addressing_style": "path" if _use_path_style() else "auto"},
@@ -100,8 +99,10 @@ def create_avatar_presign(
     if content_length is not None:
         params["ContentLength"] = content_length
 
-    presign_endpoint = _presign_endpoint()
-    client = get_s3_client(endpoint_url=presign_endpoint)
+    # Generate client utilizing the robust, simplified wrapper
+    client = get_s3_client()
+    
+    # Generate the link directly
     upload_url = client.generate_presigned_url(
         "put_object",
         Params=params,
