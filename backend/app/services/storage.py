@@ -1,6 +1,5 @@
 import os
 import uuid
-
 import boto3
 from botocore.client import Config
 
@@ -29,37 +28,30 @@ def _public_base_url() -> str:
     return base
 
 
-def _presign_endpoint() -> str | None:
-    """Host the browser can reach (e.g. localhost:9000), not internal Docker DNS (minio:9000)."""
-    public = os.environ.get("S3_PUBLIC_ENDPOINT", "").strip()
-    if public and public.lower() not in ("none", "null"):
-        return public.rstrip("/")
-    internal = os.environ.get("S3_ENDPOINT", "").strip()
-    if internal and internal.lower() not in ("none", "null"):
-        return internal.rstrip("/")
-    return None
-
-
-def get_s3_client(*, endpoint_url: str | None = None):
+def get_s3_client():
+    """
+    Instantiates a cleanly routed S3 Client.
+    Safely handles empty environment string variations in Fargate vs MinIO.
+    """
+    # Normalize endpoint string checking
+    endpoint = os.environ.get("S3_ENDPOINT", "").strip()
+    
     kwargs: dict = {
         "service_name": "s3",
         "region_name": os.environ.get("S3_REGION", "ap-south-1"),
     }
 
+    # Catch local MinIO authentication credentials if provided
     access_key = os.environ.get("S3_ACCESS_KEY", "").strip()
     secret_key = os.environ.get("S3_SECRET_KEY", "").strip()
     if access_key and secret_key:
         kwargs["aws_access_key_id"] = access_key
         kwargs["aws_secret_access_key"] = secret_key
 
-    resolved = endpoint_url
-    if resolved is None:
-        internal = os.environ.get("S3_ENDPOINT", "").strip()
-        if internal and internal.lower() not in ("none", "null"):
-            resolved = internal.rstrip("/")
-    if resolved:
-        kwargs["endpoint_url"] = resolved
-
+    # If S3_ENDPOINT contains a genuine local routing string, configure it
+    if endpoint and endpoint.lower() not in ("none", "null", ""):
+        kwargs["endpoint_url"] = endpoint.rstrip("/")
+        
     s3_config = Config(
         signature_version="s3v4",
         s3={"addressing_style": "path" if _use_path_style() else "auto"},
@@ -107,8 +99,10 @@ def create_avatar_presign(
     if content_length is not None:
         params["ContentLength"] = content_length
 
-    presign_endpoint = _presign_endpoint()
-    client = get_s3_client(endpoint_url=presign_endpoint)
+    # Generate client utilizing the robust, simplified wrapper
+    client = get_s3_client()
+    
+    # Generate the link directly
     upload_url = client.generate_presigned_url(
         "put_object",
         Params=params,
