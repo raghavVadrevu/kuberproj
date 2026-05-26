@@ -7,6 +7,7 @@ import {
   Bell,
   ImageIcon,
   KeyRound,
+  Database,
   LogOut,
   MessageSquare,
   Sparkles,
@@ -41,6 +42,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { PageLoader } from '@/components/ui/page-loader'
 import { apiJson, type MeUpdateDto, type UserProfileDto } from '@/lib/api'
+import { isAdminEmail, wipeDatabase } from '@/lib/admin'
 import { deleteAccount } from '@/lib/account'
 import { prepareAvatarFile, uploadAvatarFile, validateAvatarFile } from '@/lib/uploads'
 import { toastUserError } from '@/lib/user-errors'
@@ -83,6 +85,8 @@ export default function ProfilePage() {
   const [session, setSession] = useState<CognitoProfileSummary | null>(null)
   const [sessionLoading, setSessionLoading] = useState(true)
   const [deletingAccount, setDeletingAccount] = useState(false)
+  const [wipingDatabase, setWipingDatabase] = useState(false)
+  const [wipeConfirmText, setWipeConfirmText] = useState('')
   const [saving, setSaving] = useState(false)
 
   const [firstName, setFirstName] = useState('')
@@ -256,6 +260,24 @@ export default function ProfilePage() {
       toastUserError(e, "Couldn't delete your account. Try again.")
     } finally {
       setDeletingAccount(false)
+    }
+  }
+
+  const handleWipeDatabase = async () => {
+    if (wipeConfirmText.trim() !== 'WIPE_ALL_DATA') {
+      toast.error('Type WIPE_ALL_DATA to confirm.')
+      return
+    }
+    setWipingDatabase(true)
+    try {
+      await wipeDatabase()
+      toast.success('Database wiped. All app data was removed.')
+      setWipeConfirmText('')
+      navigate('/', { replace: true })
+    } catch (e) {
+      toastUserError(e, 'Could not wipe the database.')
+    } finally {
+      setWipingDatabase(false)
     }
   }
 
@@ -451,6 +473,65 @@ export default function ProfilePage() {
               </Button>
             </div>
           </div>
+
+          {isAdminEmail(session.email) ? (
+            <>
+              <Separator />
+              <div className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+                <div className="flex items-center gap-2">
+                  <Database className="h-4 w-4 text-destructive" />
+                  <p className="text-sm font-medium text-destructive">Admin</p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Permanently delete all users, groups, polls, expenses, chat, and vault data from the
+                  database. Cognito accounts are not removed.
+                </p>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="w-full">
+                      <Database className="w-4 h-4 mr-2" />
+                      Wipe entire database
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Wipe the entire database?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This removes every row from the app database for all users. It cannot be undone.
+                        Type <span className="font-mono text-foreground">WIPE_ALL_DATA</span> below to
+                        confirm.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <Input
+                      value={wipeConfirmText}
+                      onChange={(e) => setWipeConfirmText(e.target.value)}
+                      placeholder="WIPE_ALL_DATA"
+                      className="font-mono"
+                      autoComplete="off"
+                    />
+                    <AlertDialogFooter>
+                      <AlertDialogCancel
+                        disabled={wipingDatabase}
+                        onClick={() => setWipeConfirmText('')}
+                      >
+                        Cancel
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        disabled={wipingDatabase || wipeConfirmText.trim() !== 'WIPE_ALL_DATA'}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          void handleWipeDatabase()
+                        }}
+                      >
+                        {wipingDatabase ? 'Wiping…' : 'Wipe database'}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </>
+          ) : null}
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
